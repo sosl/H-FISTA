@@ -1,7 +1,7 @@
 # H-FISTA
 Hierarchical FISTA - phase retrieval for pulsar spectroscopy
 
-For a full description please see the published paper.
+For a full description please see the [published paper](https://arxiv.org/abs/2211.11129).
 
 ## Installing dependencies
 
