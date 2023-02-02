@@ -224,8 +224,8 @@ def set_style():
     )
 
 
-def set_rc(fontSize=None):
-    plt.rcParams["text.usetex"] = True
+def set_rc(fontSize=None, usetex=True):
+    plt.rcParams["text.usetex"] = usetex
     plt.rcParams["image.origin"] = "lower"
     plt.rcParams["image.aspect"] = "auto"
     plt.rcParams["image.interpolation"] = "none"
@@ -464,11 +464,12 @@ def get_paper_figure(
     vmin_data=0.03,
     fontSize=None,
     facecolor="white",
+    usetex=True,
 ):
     if "seaborn" in sys.modules.keys():
         sns.set_theme()
         set_style()
-    set_rc(fontSize)
+    set_rc(fontSize=fontSize, usetex=usetex)
     if max_diagnostic_step is None:
         max_diagnostic_step = chosen_step
     dpi = 72.27 * scale / 2
