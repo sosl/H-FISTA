@@ -19,6 +19,18 @@ Alternatively, you can use pip:
 pip -r requirements.txt
 ```
 
+You might need to install additional LaTeX fonts used by matplotlib; e.g.
+
+```
+sudo apt install cm-super
+```
+
+And if using jupyter notebooks, you might also need to install dvipng; e.g.
+
+```
+sudo apt install dvipng
+```
+
 ## Input data
 
 The data used in the publication and in the example notebooks can be obtained from [Zenodo](https://zenodo.org/) under this DOI: [10.5281/zenodo.7007226](https://doi.org/10.5281/zenodo.7007226)
