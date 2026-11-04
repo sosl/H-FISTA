@@ -130,3 +130,7 @@ dmypy.json
 
 # Zenodo dataset (10.5281/zenodo.7007226), downloaded locally
 /data
+
+# large per-run arrays from dense/real_data.py (regenerate with the script)
+dense/results/**/*_dense.npy
+dense/results/**/*_mask.npy
