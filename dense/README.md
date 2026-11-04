@@ -165,6 +165,61 @@ Adaptive coarse-to-fine does **not** fix it. The residual declines smoothly
 step 20, 0.041 at the chosen step 33 with 7583 components). This dataset stays
 unsolved.
 
+## Padding the time axis with masked rows (`--pad_rows`)
+
+J1939 has 487 sub-integrations, a prime number, which makes FFTs along that axis slow
+(95 vs 33 ms per 487×4096 vs 512×4096 FFT here). `real_data.py --pad_rows 512` pads the
+time axis with rows of mask 0 (treated as missing data, like the existing gap). This
+changes the model: the Doppler grid becomes finer, and the observation is no longer
+treated as periodic in time.
+
+**Speed: no gain.** Isolated timing, first 3 λ steps of J1939 (`time_padding.py`,
+nothing else running): 184.5 s original, 185.4 s padded. Each iteration is ~17% cheaper
+(FFTs are only ~55% of a step; the rest is element-wise work on 2M-pixel arrays), but
+the padded run needs ~21% more FFTs, i.e. more inner iterations. The whole runs (28 steps,
+both alongside other jobs) took 46 and 49 min.
+
+**Results** (`compare_padding.py`, `results/paper/J1939_padding_comparison.json`):
+
+| | original grid (487 rows) | padded (512 rows) |
+|---|---|---|
+| stopping | step 28, sparsity criterion | step 28, sparsity criterion |
+| components | 55 225 (as published) | 56 590 |
+| sparse / dense residual | 0.155 / 1.4e-5 | 0.151 / 1.0e-5 |
+| dense power at negative delays | 1.00% | 0.90% |
+
+The two models agree only partly. The similarity of the retrieved fields ifft2(h) over the
+observed, unmasked times is 0.62 (1 = same field up to a global phase). That is the normal
+spread on J1939 between models that fit the data about equally well:
+
+| J1939 model vs the published l1 model | field similarity |
+|---|---|
+| padded l1 | 0.62 |
+| MCP γ=3, same grid | 0.62 |
+| greedy pursuit (`claude/greedy-pursuit`) | 0.60 |
+| adaptive coarse-to-fine | 0.23 |
+
+So the J1939 data do not pin down one wavefield at this level, and padding moves the
+answer within that existing spread.
+
+**Simulations** (`padding_test.py`, `results/padding_test.jsonl`; 8 seeds, 121 observed
+rows of a longer 256-row simulation, 2% noise, so the observation is not periodic):
+
+| grid | exact recoveries (field similarity > 0.99) | mean field similarity |
+|---|---|---|
+| original (121 rows) | 1/8 | 0.84 |
+| padded to 128 | **6/8** | 0.81 |
+| padded to 242 (2×) | 4/8 | 0.73 |
+
+Padding to the next fast length recovers the field exactly in 6 of 8 cases where the
+original grid stops at 0.91–0.995, but the two cases that fail anyway fail harder
+(0.49 → 0.20, 0.40 → 0.30). Padding to 2× is worse. A first test with a truth that *was*
+periodic over the observed rows favoured the original grid, as expected: the periodicity
+assumption matters, and real data are not periodic.
+
+**Verdict:** keep `--pad_rows` as an opt-in. It is not a speed-up. It may help when the
+wavefield is recoverable, but this is not established on real data.
+
 ## Real data: J1939+2134 (`real_data.py`)
 
 Both runs use the notebook configuration (initial RFI mask for the gap, RFI cleaning,
@@ -195,5 +250,6 @@ physically-shaped blocks are a natural thing to try next.
 
 * `variants.py`: the shared H-FISTA loop and the regularisers
 * `benchmark.py`, `summarize.py`: simulation benchmark (resumable) and tables
+* `compare_padding.py`, `padding_test.py`, `time_padding.py`: time-axis padding comparison
 * `real_data.py`: observed data with the paper's stopping criteria and densification, plus truth-free diagnostics
 * `results/`: benchmark records (`bench256_*.jsonl`), summary, J1939 outputs
