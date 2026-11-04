@@ -57,11 +57,21 @@ def main():
     p.add_argument("--steps", type=int, default=60)
     p.add_argument("--out", required=True)
     a = p.parse_args()
+    done = set()
+    if os.path.exists(a.out):  # resumable: skip runs already recorded
+        for line in open(a.out):
+            try:
+                r = json.loads(line)
+                done.add((r["regime"], r["seed"], r["method"]))
+            except ValueError:
+                pass
     for regime in a.regimes:
         density, decades = REGIMES[regime]
         for seed in a.seeds:
             sim = simulate_regions(N=a.N, M=a.N, density=density, decades=decades, seed=seed)
             for name in a.methods:
+                if (regime, seed, name) in done:
+                    continue
                 per_step = []
 
                 def cb(io, s):
