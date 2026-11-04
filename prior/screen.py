@@ -81,9 +81,14 @@ def simulate_screen(n_t=256, n_f=256, sigma_phi=3.0, ar=4.0, r_f=6.0, bandwidth=
 def twin_split(estimate, truth):
     """Best normalised match of estimate to the truth and, separately, to its twin (each over all
     shifts and a global phase). A model mixing the wavefield and its twin image shows two partial
-    matches; c_true^2 + c_twin^2 approximates the fraction of the model explained by the two."""
+    matches; c_true^2 + c_twin^2 approximates the fraction of the model explained by the two.
+    The origin pixel is excluded from both (truth and twin share it, so it would credit both)."""
     from simulate import twin
 
+    estimate = estimate.copy()
+    truth = truth.copy()
+    estimate[0, 0] = 0
+    truth[0, 0] = 0
     den = np.linalg.norm(estimate) * np.linalg.norm(truth)
     E = np.fft.fft2(estimate)
     out = {}
