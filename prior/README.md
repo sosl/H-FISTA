@@ -175,10 +175,47 @@ Fresnel scale. Mean dense similarity over 4 seeds, H-FISTA → PnP:
 * The other simulator assumptions still apply: a single thin screen, Kolmogorov
   spectrum, this noise model.
 
+**A broader denoiser** (`results/denoiser128_broad.pt`):
+* **Training:** 3000 screens with anisotropy log-uniform in [1.5, 12] and r_F in [6, 20];
+  10 layers of 48 channels; 25 epochs, ~2 h on 3 CPU threads.
+* **Denoising:** median validation gain ~7 dB, against 4.8 dB for the first model.
+* **Evaluation:** PnP on the main benchmark, the settings above, and screens outside
+  the new family (anisotropy 1 and 25, r_F 4 and 30). Mean dense similarity, 4 seeds
+  (`results/pnp128_broad*.jsonl`, `results/pnp128_narrow_far.jsonl`):
+
+| screen | regime | H-FISTA | PnP, first denoiser | PnP, broad denoiser |
+|---|---|---|---|---|
+| anisotropy 4, r_F 15 (main) | S3 | 0.69 | 0.76 | 0.74 |
+| | S10 | 0.30 | 0.37 | 0.37 |
+| | S30 | 0.12 | 0.11 | **0.14** |
+| anisotropy 1 (outside both) | S3 | **0.68** | 0.63 | 0.59 |
+| | S10 | 0.29 | 0.37 | 0.36 |
+| anisotropy 1.5 | S3 | 0.64 | 0.65 | 0.68 |
+| | S10 | 0.25 | 0.30 | 0.34 |
+| anisotropy 12 | S3 | 0.78 | 0.87 | 0.87 |
+| | S10 | 0.53 | 0.65 | 0.66 |
+| anisotropy 25 (outside both) | S3 | 0.85 | 0.95 | 0.94 |
+| | S10 | 0.76 | 0.83 | 0.82 |
+| r_F 4 (outside both) | S3 | 0.72 | 0.77 | 0.78 |
+| | S10 | 0.44 | 0.52 | 0.53 |
+| r_F 8 | S3 | 0.74 | 0.75 | 0.77 |
+| | S10 | 0.33 | 0.37 | 0.37 |
+| r_F 30 (outside both) | S3 | 0.57 | 0.59 | 0.58 |
+| | S10 | 0.21 | 0.22 | 0.25 |
+
+* **PnP with the broad denoiser beats H-FISTA in 55 of 68 cases**, including screens
+  outside its training family.
+* **One exception: isotropic screens at weak scattering**, where H-FISTA is better
+  (0.68 against 0.59–0.63).
+* **The broad denoiser is only marginally better than the first** (better in 42 of 68
+  cases), despite denoising ~2 dB better. Its one notable gain is the first improvement
+  in the dense regime, S30 0.12 → 0.14.
+* **Denoising quality is not the bottleneck.** The remaining error is the twin ambiguity,
+  which a better denoiser of single fields does not break.
+
 ## Next steps if pursued
 
-* Train at 256²/512² and on a broader family of screens (anisotropy, inner scale, several
-  screens); test on screens outside the training family.
+* Train at 256²/512² and with several screens or other inner scales.
 * Use a denoiser trained on |h| to penalise twin-like structure explicitly. The twin's
   arc curvature is reversed, which a prior over physical screens could learn to reject.
 * Use diffusion-model posterior sampling (DDRM-PR, Kaya & Öktem 2025, Applied Optics) to
