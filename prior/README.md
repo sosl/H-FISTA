@@ -127,6 +127,24 @@ J0837 data have 0.5% fractional bandwidth in any case.
   only the truth-free diagnostics would be available.
 * It's slower: ~20 s against 2–7 s per 128² case (CNN on CPU).
 
+**Out of distribution** (`results/pnp128_ood.jsonl`). The same denoiser (trained on
+anisotropy 4, r_F = 15) is used on screens with other anisotropies and a smaller
+Fresnel scale. Mean dense similarity over 4 seeds, H-FISTA → PnP:
+
+| screen | S3 | S10 |
+|---|---|---|
+| anisotropy 1.5 | 0.64 → 0.65 | 0.25 → 0.30 |
+| anisotropy 12 | 0.78 → **0.87** | 0.53 → **0.65** |
+| r_F = 8 | 0.74 → 0.75 | 0.33 → 0.37 |
+
+* **The gain survives** outside the training family: PnP is better on average in all six
+  settings, and better per seed in 18 of 24 cases.
+* **The gain is largest for very anisotropic screens:** sharp arcs, more like many real
+  pulsars.
+* It is smallest for nearly isotropic screens and at weak scattering.
+* The other simulator assumptions still apply: a single thin screen, Kolmogorov
+  spectrum, this noise model.
+
 ## Next steps if pursued
 
 * Train at 256²/512² and on a broader family of screens (anisotropy, inner scale, several
