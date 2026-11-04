@@ -81,11 +81,14 @@ class Prior:
         return from_output(y, scale, h00)
 
 
-def make_data(n, N, seed0, rng):
+def make_data(n, N, seed0, rng, ar_range=(4.0, 4.0), rf_range=(15.0, 15.0)):
+    """screens with σ_φ log-uniform in [2, 40] rad and anisotropy / Fresnel scale log-uniform in the given ranges"""
     xs = []
     for i in range(n):
         s = float(np.exp(rng.uniform(np.log(2), np.log(40))))
-        sim = simulate_screen(n_t=N, n_f=N, sigma_phi=s, r_f=15.0, bandwidth=0.2, seed=seed0 + i)
+        ar = float(np.exp(rng.uniform(*np.log(ar_range))))
+        rf = float(np.exp(rng.uniform(*np.log(rf_range))))
+        sim = simulate_screen(n_t=N, n_f=N, sigma_phi=s, ar=ar, r_f=rf, bandwidth=0.2, seed=seed0 + i)
         x, _, _ = to_input(sim.wavefield)
         xs.append(x)
     return np.stack(xs)
@@ -100,6 +103,10 @@ def main():
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--threads", type=int, default=2)
+    p.add_argument("--ar_range", nargs=2, type=float, default=[4.0, 4.0])
+    p.add_argument("--rf_range", nargs=2, type=float, default=[15.0, 15.0])
+    p.add_argument("--ch", type=int, default=32)
+    p.add_argument("--depth", type=int, default=8)
     p.add_argument("--out", required=True)
     a = p.parse_args()
     torch.set_num_threads(a.threads)
@@ -118,11 +125,11 @@ def main():
             np.savez(cache, tr=Xtr, va=Xva, version=2)
     else:
         t = time.time()
-        Xtr = make_data(a.n_train, a.N, 10_000, rng)
-        Xva = make_data(a.n_val, a.N, 50_000, rng)
+        Xtr = make_data(a.n_train, a.N, 10_000, rng, a.ar_range, a.rf_range)
+        Xva = make_data(a.n_val, a.N, 50_000, rng, a.ar_range, a.rf_range)
         np.savez(cache, tr=Xtr, va=Xva, version=2)
         print(f"data {time.time() - t:.0f}s", flush=True)
-    arch = dict(ch=32, depth=8)
+    arch = dict(ch=a.ch, depth=a.depth)
     model = Denoiser(**arch)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.epochs)
