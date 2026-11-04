@@ -12,6 +12,14 @@ the penalty, hard threshold and approval act on, and the penalty itself:
               lasso). Sparsity is enforced between blocks, not within them: an approved
               block approves *all* its pixels, which is the "estimate at lower resolution,
               then populate all corresponding higher-resolution pixels" idea.
+* "mcp"     : per-pixel minimax concave penalty (non-convex); prox = firm threshold:
+              zero below λ/L, unshrunk above γ λ/L, linear in between. Less bias on strong
+              components than l1, so the selection is less driven by shrinkage.
+* reweighting (reweight_passes > 0, any per-pixel method): after the regularised FISTA
+              of a λ step, re-solve R times with Λ_ij scaled by ε/(|h_ij| + ε),
+              ε = c λ/L (majorise-minimise for the log penalty; Candès, Wakin & Boyd 2008).
+              Pixels already found are penalised less, zero pixels keep λ.
+* loss="amplitude": fit |ifft2 h| to sqrt(D) instead of |ifft2 h|^2 to D (amplitude flow).
 * coarse-to-fine: a block size per stage (e.g. 4 → 2 → 1) moves from the coarse to
               the fine description as λ decreases; approval carries over between levels.
 """
@@ -20,7 +28,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 import numpy as np
-from scipy.fft import fftshift, ifftshift, ifftn
+from scipy.fft import fftn, fftshift, ifftshift, ifftn
 from scipy.linalg import norm
 
 import fista as F
@@ -65,6 +73,54 @@ def block_ids(shape, k):
 
 
 # ------------------------------------------------------------------------------------
+# amplitude loss: f(h) = Σ mask (|ifft2 h| - sqrt(D))^2
+# ------------------------------------------------------------------------------------
+class AmplitudeResidual(Residual):
+    """Residual with the amplitude loss. Same interface as lib.Residual (derivative is the
+    Wirtinger derivative ∂f/∂h*, so the B3 backtracking test is unchanged)."""
+
+    def __init__(self, data, wavefield, l1_penalty, RFI_mask, **kw):
+        self.sqrt_data = np.sqrt(np.maximum(data, 0.0))
+        super().__init__(data, wavefield, l1_penalty, RFI_mask, **kw)
+
+    def set_residual(self):
+        self.abs_H = np.sqrt(self.prediction)
+        self.residual = self.abs_H - self.sqrt_data
+
+    def set_derivative(self):
+        prod = np.prod(self.data.shape)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ph = np.where(self.abs_H > 0, self.H / self.abs_H, 0.0)
+        self._derivative = 1.0 / prod * fftn(self.residual * self.RFI_mask * ph, workers=self.workers)
+
+    def set_Lipschitz_constant_grad(self):
+        # f is ~ ||ifft2(h) - b||^2 near the solution: L = 2/(NM) in the Wirtinger convention
+        self.Lipschitz_constant = 2.0 / np.prod(self.data.shape)
+
+
+def make_residual(loss):
+    if loss == "intensity":
+        return Residual
+    if loss == "amplitude":
+        return AmplitudeResidual
+    raise ValueError(loss)
+
+
+def firm_threshold(z, Lam, L, gamma):
+    """complex firm threshold (prox of the MCP with parameter gamma > 1); Λ = inf -> 0, Λ = 0 -> z"""
+    a = np.abs(z)
+    t = Lam / L
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        mid = gamma * (a - t) / ((gamma - 1.0) * a)
+        scale = np.where(a <= t, 0.0, np.where(a > gamma * t, 1.0, mid))
+    scale = np.where(np.isinf(Lam), 0.0, np.where(Lam == 0, 1.0, scale))
+    out = z * scale
+    if np.count_nonzero(out) == 0:
+        raise ValueError("firm_threshold: λ/L too large, no elements left")
+    return out
+
+
+# ------------------------------------------------------------------------------------
 # regularisers: prox(z, Lam, forbid, L) and unit handling
 # ------------------------------------------------------------------------------------
 @dataclass
@@ -73,8 +129,12 @@ class Reg:
     k: int = 1  # block size (group)
     beta: float = 0.0  # elastic-net strength relative to λ
     lam_ratio: float = 1.0  # λ_s / λ_init, set per stage
+    gamma: float = 3.0  # MCP concavity
+
 
     def prox(self, z: np.ndarray, Lam: np.ndarray, L: float) -> np.ndarray:
+        if self.kind == "mcp":
+            return firm_threshold(z, Lam, L, self.gamma)
         if self.kind in ("l1", "elastic") or (self.kind == "group" and self.k == 1):
             x = F.complex_prox_l1(z, Lam, L)
             if self.kind == "elastic" and self.beta > 0:
@@ -181,6 +241,10 @@ def run_variant(
     plateau_tol: float = 0.05,
     min_resid_drop: float = 0.3,
     stop_on_final_plateau: bool = False,
+    gamma: float = 3.0,
+    reweight_passes: int = 0,
+    reweight_c: float = 1.0,
+    loss: str = "intensity",
 ):
     """method: "l1", "elastic" (with beta) or "group" (with block_sizes: one per stage, the last
     value repeating; e.g. [4]*10 + [2]*10 + [1]).
@@ -191,13 +255,15 @@ def run_variant(
     also requires the relative data residual to have dropped by at least min_resid_drop
     during it (the coarse structure has been found, not just a slow start). With stop_on_final_plateau,
     a plateau at the last level ends the run (chosen = that step).
+    method "mcp" (with gamma), reweight_passes/reweight_c and loss: see the module docstring.
     Returns io, chosen step."""
+    Res = make_residual(loss)
     N, M = data.shape
     if mask is None:
         mask = np.ones_like(data)
     h = np.zeros((N, M), dtype=complex)
     h[0, 0] = np.sqrt(np.mean(data * mask)) * N * M + 0.0j
-    resid = Residual(data, h, None, mask)
+    resid = Res(data, h, None, mask)
     lam_init = get_initial_lambda(desired_components, delay_for_inf, resid) * lambda_scale
     allowed = np.isfinite(construct_lambda_matrix((N, M), 1.0, delay_for_inf))
 
@@ -214,12 +280,21 @@ def run_variant(
         elif method == "group":
             bs = list(block_sizes or [2])
             k = bs[min(step - 1, len(bs) - 1)]
-        reg = Reg(kind=method, k=k, beta=beta, lam_ratio=lam / lam_init)
-        s_guess = Residual(data, io["models"][step - 1], None, io["masks"][step - 1]).get_Lipschitz_constant_grad()
+        reg = Reg(kind=method, k=k, beta=beta, lam_ratio=lam / lam_init, gamma=gamma)
+        s_guess = Res(data, io["models"][step - 1], None, io["masks"][step - 1]).get_Lipschitz_constant_grad()
 
         Lam = construct_lambda_matrix((N, M), lam, delay_for_inf, zero_penalty_coords=approved)
-        r = Residual(data, io["models"][step - 1], None, io["masks"][step - 1])
+        r = Res(data, io["models"][step - 1], None, io["masks"][step - 1])
         fit, dem, L = fista_generic(r, io["models"][step - 1], lambda z, LL: reg.prox(z, Lam, LL), FISTA_niter, s_guess, eta)
+        rw_dems = []
+        for _ in range(reweight_passes):
+            eps = reweight_c * lam / L
+            Lam_rw = Lam * (eps / (np.abs(fit) + eps))  # inf stays inf, 0 stays 0
+            r = Res(data, fit, None, io["masks"][step - 1])
+            fit, d_rw, L = fista_generic(r, fit, lambda z, LL: reg.prox(z, Lam_rw, LL), FISTA_niter, s_guess, eta)
+            rw_dems.append(d_rw)
+        if rw_dems:
+            dem = np.concatenate([dem] + rw_dems)
         mask_s = io["masks"][step - 1]
         if clean_RFI:
             mask_s = update_RFI_mask(mask_s, generate_narrowband_RFI_mask(r.residual, 0, 5.0, 21))
@@ -228,7 +303,7 @@ def run_variant(
         prev = None
         while True:
             Lam_fix = construct_lambda_matrix((N, M), 0.0, fix_support=support)
-            r = Residual(data, fit, None, mask_s)
+            r = Res(data, fit, None, mask_s)
             fit, dem, L = fista_generic(r, fit, lambda z, LL: F.complex_prox_l1(z, Lam_fix, LL), FISTA_niter, s_guess, eta)
             dems.append(dem)
             if clean_RFI:

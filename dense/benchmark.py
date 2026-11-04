@@ -46,6 +46,12 @@ METHODS = {
     "c2f2": dict(method="group", block_sizes=[2] * 15 + [1]),
     "ac2f": dict(method="group", levels=[4, 2, 1], stop_on_final_plateau=True),
     "ac2f8": dict(method="group", levels=[8, 4, 2, 1], stop_on_final_plateau=True),
+    # non-convex / reweighted penalties and the amplitude loss
+    "mcp3": dict(method="mcp", gamma=3.0),
+    "rw1": dict(method="l1", reweight_passes=2, reweight_c=1.0),
+    "rw4": dict(method="l1", reweight_passes=2, reweight_c=4.0),
+    "amp": dict(method="l1", loss="amplitude"),
+    "amp_rw1": dict(method="l1", loss="amplitude", reweight_passes=2, reweight_c=1.0),
 }
 
 
