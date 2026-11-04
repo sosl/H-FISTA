@@ -1,0 +1,3 @@
+2026-11-04 10:47:09,151 - H-FISTA.helpers - WARNING - Loading /home/user/wt-dense/data/J1939+2134.fits as a psrflux ASCII file failed. Trying to load as a FITS file.
+{"rows": 487, "steps": 3, "wall": 184.5313401222229, "fft": 1463, "ms_per_fft_incl_overhead": 126.1321531935905}
+{"rows": 512, "steps": 3, "wall": 185.38321352005005, "fft": 1778, "ms_per_fft_incl_overhead": 104.26502447696853}

@@ -17,6 +17,9 @@ the comparisons below are against the real thing.
 | name | penalty | what an "approved" unit is |
 |---|---|---|
 | `l1` | λ Σ \|h_ij\| (H-FISTA) | a pixel |
+| `mcp` γ | minimax concave penalty: firm threshold (zero below λ/L, unshrunk above γλ/L) | a pixel |
+| `reweight_passes`, `reweight_c` | l1 re-solved with Λ·ε/(\|h\|+ε), ε = c·λ/L | a pixel |
+| `loss="amplitude"` | any of the above, fitting \|ifft2 h\| to √D | – |
 | `elastic` β | l1 plus an l2 shrinkage 1/(1+κ), κ = β·λ/λ_init, on penalised pixels | a pixel |
 | `group` k | λ k Σ_blocks ‖h_block‖₂ over k×k (Doppler × delay) blocks (group lasso); block soft threshold, block hard threshold | **all allowed pixels of a block**: sparsity between blocks, density within |
 | fixed coarse-to-fine | `group` with a block size per λ step, e.g. 4 (8 steps) → 2 (8 steps) → 1 | approval carries over between levels |
@@ -85,12 +88,137 @@ in [`results/summary256.md`](results/summary256.md); per-step traces are in
   level switch (re-penalising approved pixels whose value is small) is the obvious
   next thing to try.
 
+## Non-convex and reweighted penalties, amplitude loss
+
+Same benchmark, same 6 seeds. All are drop-in changes to the l1 loop:
+
+* **MCP γ=3**: the prox becomes a firm threshold. Values below λ/L go to zero,
+  values above 3λ/L are left unshrunk, and values in between scale linearly. Cost is
+  unchanged.
+* **Reweighted l1**: after each λ step's regularised FISTA, it is re-solved twice with
+  Λ scaled by ε/(|h|+ε), ε = c·λ/L. This is the majorise-minimise scheme for the log
+  penalty (Candès, Wakin & Boyd 2008). It is about 1.7× slower.
+* **Amplitude loss**: fit |ifft2 h| to √D instead of |ifft2 h|² to D. It is a different
+  loss, but the λ schedule, stopping rule and debias step are unchanged.
+
+Mean similarity of the stopped model (solved / runs), using the paper's 3% sparsity
+criterion:
+
+| method | uniform 12.5% | uniform 25% | log-uniform 25% | log-uniform 50% |
+|---|---|---|---|---|
+| l1 (H-FISTA) | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
+| **MCP γ=3** | **0.75 (4/6)** | 0.20 (0/6) | **1.00 (6/6)** | **0.87 (4/6)** |
+| MCP γ=10 | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.53 (2/6) |
+| reweighted l1, c=1 | 0.49 (2/6) | 0.19 (0/6) | 0.99 (5/6) | 0.75 (3/6) |
+| reweighted l1, c=4 | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
+| amplitude loss | 0.25 (0/6) | 0.18 (0/6) | 0.90 (5/6) | 0.30 (0/6) |
+| amplitude loss + reweighted l1 | 0.25 (0/6) | 0.17 (0/6) | 1.00 (6/6) | 0.30 (0/6) |
+| adaptive 4 → 2 → 1 (above) | 0.69 (2/6) | **0.57 (1/6)** | 0.88 (4/6) | 0.80 (1/6) |
+| **MCP + adaptive, lower residual** | **0.76 (4/6)** | **0.57 (1/6)** | **1.00 (6/6)** | **0.89 (4/6)** |
+
+* **MCP γ=3 is the best single change on this benchmark**, but it does not carry over
+  to the paper's data (next section). It doubles the exact
+  recoveries in two hard regimes (2 → 4 of 6 each) and solves every easy case. No seed gets
+  worse by more than 0.01, and it costs no more than l1. The likely mechanism: l1 shrinks
+  strong components as much as weak ones, so the gradient left over after shrinkage
+  keeps pulling in wrong pixels. The firm threshold doesn't shrink strong components,
+  so that bias is gone.
+* **Reweighting is too weak a change.** H-FISTA already sets the penalty of approved
+  pixels to zero, which is the extreme form of reweighting. Reweighting within a λ step
+  adds little (one extra solved case, log-uniform 50%, c=1).
+* **The amplitude loss is worse.** It floods the model with components in the hard
+  regimes (≈25k non-zero pixels by step 60). Probably the λ schedule, which is set from
+  the intensity-loss gradient, doesn't suit it. I didn't tune it further.
+* **MCP and adaptive coarse-to-fine complement each other.** Keeping the lower-residual
+  stopped model of the two needs no truth. It has the best mean in every regime.
+  Including l1 as a third candidate changes nothing.
+
+## On the paper's data (`real_data.py`, results in `results/paper/`)
+
+Notebook configuration for every dataset (masks, RFI cleaning, N₀ = 60, the paper's
+stopping criteria, densification with 1000 iterations). Similarity to the truth is
+known only for the 12.5% simulations (the published run's exact recovery).
+
+| dataset | l1 (H-FISTA) | MCP γ=3 | MCP γ=10 | adaptive 4 → 2 → 1 |
+|---|---|---|---|---|
+| simulated 12.5%, noise-free | **1.00** (647 comp., step 66) | 0.68 (7863 comp.; sparsity stop, step 36) | 0.80 (7477; step 36) | 0.36 (7451; step 32) |
+| simulated 12.5%, noisy | **1.00** (596 comp., step 38) | 0.63 (7573; step 35) | – | 0.29 (534; step 19) |
+| simulated 25%, noise-free | resid. 0.041 (7583 comp.) | 0.045 (7398) | 0.040 (7521) | 0.054 (7336) |
+| J0837+0610 | 4526 comp.; dense resid. 0.070, neg.-delay power 3.2% | 4604; 0.070, 3.2% | – | 7352; 0.070, 3.2% |
+| J1939+2134 | 55 225 comp.; dense resid. 1.4e-5, neg.-delay power 1.0% | 56 931; 1.2e-5, 0.95% | – | 58 224; 1.1e-5, 1.0% |
+
+* **Neither MCP nor coarse-to-fine carries over.** On the paper's 12.5% simulation, which
+  l1 solves exactly, both fail. MCP adds components about 2.5× faster than l1 (349 vs ~150
+  by step 10) and hits the 3% sparsity criterion at step 36, long before l1's slow
+  convergence to 647 components at step 66. A weaker concavity (γ=10) is better here
+  (0.80) but still fails, and on the 256² benchmark it loses MCP's gains.
+* On the 25% simulation and the two pulsars, the three methods are indistinguishable by
+  the truth-free diagnostics.
+* So the 256² benchmark was not representative of the paper's simulations: its gains came
+  from regimes (uniform moduli, 50% density) that differ from the paper's data. l1 remains
+  the safest default; MCP is not recommended.
+
 ### The paper's own failure case (512² noise-free 25%)
 
 Adaptive coarse-to-fine does **not** fix it. The residual declines smoothly
 (0.66 → 0.145 over 24 steps) with no sharp drop, as in the published run (0.137 at
 step 20, 0.041 at the chosen step 33 with 7583 components). This dataset stays
 unsolved.
+
+## Padding the time axis with masked rows (`--pad_rows`)
+
+J1939 has 487 sub-integrations, a prime number, which makes FFTs along that axis slow
+(95 vs 33 ms per 487×4096 vs 512×4096 FFT here). `real_data.py --pad_rows 512` pads the
+time axis with rows of mask 0 (treated as missing data, like the existing gap). This
+changes the model: the Doppler grid becomes finer, and the observation is no longer
+treated as periodic in time.
+
+**Speed: no gain.** Isolated timing, first 3 λ steps of J1939 (`time_padding.py`,
+nothing else running): 184.5 s original, 185.4 s padded. Each iteration is ~17% cheaper
+(FFTs are only ~55% of a step; the rest is element-wise work on 2M-pixel arrays), but
+the padded run needs ~21% more FFTs, i.e. more inner iterations. The whole runs (28 steps,
+both alongside other jobs) took 46 and 49 min.
+
+**Results** (`compare_padding.py`, `results/paper/J1939_padding_comparison.json`):
+
+| | original grid (487 rows) | padded (512 rows) |
+|---|---|---|
+| stopping | step 28, sparsity criterion | step 28, sparsity criterion |
+| components | 55 225 (as published) | 56 590 |
+| sparse / dense residual | 0.155 / 1.4e-5 | 0.151 / 1.0e-5 |
+| dense power at negative delays | 1.00% | 0.90% |
+
+The two models agree only partly. The similarity of the retrieved fields ifft2(h) over the
+observed, unmasked times is 0.62 (1 = same field up to a global phase). That is the normal
+spread on J1939 between models that fit the data about equally well:
+
+| J1939 model vs the published l1 model | field similarity |
+|---|---|
+| padded l1 | 0.62 |
+| MCP γ=3, same grid | 0.62 |
+| greedy pursuit (`claude/greedy-pursuit`) | 0.60 |
+| adaptive coarse-to-fine | 0.23 |
+
+So the J1939 data do not pin down one wavefield at this level, and padding moves the
+answer within that existing spread.
+
+**Simulations** (`padding_test.py`, `results/padding_test.jsonl`; 8 seeds, 121 observed
+rows of a longer 256-row simulation, 2% noise, so the observation is not periodic):
+
+| grid | exact recoveries (field similarity > 0.99) | mean field similarity |
+|---|---|---|
+| original (121 rows) | 1/8 | 0.84 |
+| padded to 128 | **6/8** | 0.81 |
+| padded to 242 (2×) | 4/8 | 0.73 |
+
+Padding to the next fast length recovers the field exactly in 6 of 8 cases where the
+original grid stops at 0.91–0.995, but the two cases that fail anyway fail harder
+(0.49 → 0.20, 0.40 → 0.30). Padding to 2× is worse. A first test with a truth that *was*
+periodic over the observed rows favoured the original grid, as expected: the periodicity
+assumption matters, and real data are not periodic.
+
+**Verdict:** keep `--pad_rows` as an opt-in. It is not a speed-up. It may help when the
+wavefield is recoverable, but this is not established on real data.
 
 ## Real data: J1939+2134 (`real_data.py`)
 
@@ -122,5 +250,6 @@ physically-shaped blocks are a natural thing to try next.
 
 * `variants.py`: the shared H-FISTA loop and the regularisers
 * `benchmark.py`, `summarize.py`: simulation benchmark (resumable) and tables
+* `compare_padding.py`, `padding_test.py`, `time_padding.py`: time-axis padding comparison
 * `real_data.py`: observed data with the paper's stopping criteria and densification, plus truth-free diagnostics
 * `results/`: benchmark records (`bench256_*.jsonl`), summary, J1939 outputs

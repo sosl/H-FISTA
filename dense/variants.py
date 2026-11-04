@@ -245,6 +245,8 @@ def run_variant(
     reweight_passes: int = 0,
     reweight_c: float = 1.0,
     loss: str = "intensity",
+    h_init: Optional[np.ndarray] = None,
+    lambda_weights: Optional[np.ndarray] = None,
 ):
     """method: "l1", "elastic" (with beta) or "group" (with block_sizes: one per stage, the last
     value repeating; e.g. [4]*10 + [2]*10 + [1]).
@@ -256,19 +258,31 @@ def run_variant(
     during it (the coarse structure has been found, not just a slow start). With stop_on_final_plateau,
     a plateau at the last level ends the run (chosen = that step).
     method "mcp" (with gamma), reweight_passes/reweight_c and loss: see the module docstring.
+    h_init: start from this model instead of the single origin component; its non-zero pixels
+    are approved from the start (e.g. a greedy first pass).
+    lambda_weights: per-pixel multipliers of λ for unapproved pixels (adaptive lasso, e.g. from
+    a pilot estimate); the initial λ is then chosen so that N0 pixels pass the weighted threshold.
     Returns io, chosen step."""
     Res = make_residual(loss)
     N, M = data.shape
     if mask is None:
         mask = np.ones_like(data)
-    h = np.zeros((N, M), dtype=complex)
-    h[0, 0] = np.sqrt(np.mean(data * mask)) * N * M + 0.0j
+    if h_init is None:
+        h = np.zeros((N, M), dtype=complex)
+        h[0, 0] = np.sqrt(np.mean(data * mask)) * N * M + 0.0j
+    else:
+        h = h_init.astype(complex).copy()
     resid = Res(data, h, None, mask)
-    lam_init = get_initial_lambda(desired_components, delay_for_inf, resid) * lambda_scale
     allowed = np.isfinite(construct_lambda_matrix((N, M), 1.0, delay_for_inf))
+    if h_init is None and lambda_weights is None:
+        lam_init = get_initial_lambda(desired_components, delay_for_inf, resid) * lambda_scale
+    else:  # same rule (N0 pixels above threshold, offset by one), on unapproved allowed pixels, weighted
+        w = np.ones((N, M)) if lambda_weights is None else lambda_weights
+        cand = (np.abs(resid.get_derivative(None)) / w)[allowed & (h == 0)]
+        lam_init = np.partition(cand, -desired_components - 1)[-desired_components - 1] * lambda_scale
 
     io = {"models": {0: h}, "lambdas": {0: lam_init}, "masks": {0: mask}, "Ls": {}, "demerits": {}, "block": {}}
-    approved = np.array([[0, 0]])
+    approved = np.array([[0, 0]]) if h_init is None else np.transpose(np.nonzero(h))
     chosen = -1
     level, n_level_start, n_prev, r_level_start = 0, None, None, None
     io["plateaus"] = []
@@ -284,6 +298,8 @@ def run_variant(
         s_guess = Res(data, io["models"][step - 1], None, io["masks"][step - 1]).get_Lipschitz_constant_grad()
 
         Lam = construct_lambda_matrix((N, M), lam, delay_for_inf, zero_penalty_coords=approved)
+        if lambda_weights is not None:
+            Lam = Lam * lambda_weights  # inf stays inf, 0 (approved) stays 0
         r = Res(data, io["models"][step - 1], None, io["masks"][step - 1])
         fit, dem, L = fista_generic(r, io["models"][step - 1], lambda z, LL: reg.prox(z, Lam, LL), FISTA_niter, s_guess, eta)
         rw_dems = []
@@ -309,7 +325,10 @@ def run_variant(
             if clean_RFI:
                 mask_s = update_RFI_mask(mask_s, generate_narrowband_RFI_mask(r.residual, 0, 5.0, 21))
             nz = np.transpose(np.nonzero(fit))
-            fit, _, dele = reg.hard_threshold(fit, nz, threshold_factor * lam / L)
+            thr = threshold_factor * lam / L
+            if lambda_weights is not None:  # per-pixel threshold, consistent with the weighted penalty
+                thr = thr * lambda_weights[nz[:, 0], nz[:, 1]]
+            fit, _, dele = reg.hard_threshold(fit, nz, thr)
             if len(dele):
                 dset = set(map(tuple, dele.tolist()))
                 support = np.array([c for c in support.tolist() if tuple(c) not in dset]).reshape(-1, 2)
@@ -348,3 +367,28 @@ def run_variant(
             chosen = step - 1
             break
     return io, chosen
+
+
+def holographic_pilot(data, mask=None):
+    """Pilot estimate of |h| from the secondary spectrum. With a dominant origin component,
+    fft2(D)(k) ≈ (h(k) h*(0) + h(0) h*(-k)) / (N M); at allowed delays the twin term h*(-k)
+    vanishes, so |h(k)| ≈ N M |fft2(D)(k)| / |h(0)|, with |h(0)| ≈ sqrt(mean D) N M."""
+    N, M = data.shape
+    mask = np.ones_like(data) if mask is None else mask
+    d = data * mask
+    S = np.abs(fftn(d)) / np.mean(mask)
+    h00 = np.sqrt(np.mean(d) / np.mean(mask)) * N * M
+    return S * N * M / h00
+
+
+def adaptive_weights(data, mask=None, power=1.0, eps_frac=0.01, delay_for_inf=-4):
+    """adaptive-lasso weights w = (ε / (a + ε))^power from the holographic pilot a, in (0, 1]:
+    pixels where the pilot is empty keep the normal penalty (w = 1); strong pixels get less.
+    ε = eps_frac × the 99th percentile of a over allowed pixels (origin excluded), so the
+    penalty is reduced at most ~1/eps_frac-fold."""
+    N, M = data.shape
+    a = holographic_pilot(data, mask)
+    allowed = np.isfinite(construct_lambda_matrix((N, M), 1.0, delay_for_inf))
+    allowed[0, 0] = False
+    eps = eps_frac * np.quantile(a[allowed], 0.99)
+    return (eps / (a + eps)) ** power
