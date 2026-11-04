@@ -17,6 +17,9 @@ the comparisons below are against the real thing.
 | name | penalty | what an "approved" unit is |
 |---|---|---|
 | `l1` | λ Σ \|h_ij\| (H-FISTA) | a pixel |
+| `mcp` γ | minimax concave penalty: firm threshold (zero below λ/L, unshrunk above γλ/L) | a pixel |
+| `reweight_passes`, `reweight_c` | l1 re-solved with Λ·ε/(\|h\|+ε), ε = c·λ/L | a pixel |
+| `loss="amplitude"` | any of the above, fitting \|ifft2 h\| to √D | – |
 | `elastic` β | l1 plus an l2 shrinkage 1/(1+κ), κ = β·λ/λ_init, on penalised pixels | a pixel |
 | `group` k | λ k Σ_blocks ‖h_block‖₂ over k×k (Doppler × delay) blocks (group lasso); block soft threshold, block hard threshold | **all allowed pixels of a block**: sparsity between blocks, density within |
 | fixed coarse-to-fine | `group` with a block size per λ step, e.g. 4 (8 steps) → 2 (8 steps) → 1 | approval carries over between levels |
@@ -84,6 +87,52 @@ in [`results/summary256.md`](results/summary256.md); per-step traces are in
   so the model never thins down to the true support. A re-sparsification step at each
   level switch (re-penalising approved pixels whose value is small) is the obvious
   next thing to try.
+
+## Non-convex and reweighted penalties, amplitude loss
+
+Same benchmark, same 6 seeds. All are drop-in changes to the l1 loop:
+
+* **MCP γ=3**: the prox becomes a firm threshold. Values below λ/L go to zero,
+  values above 3λ/L are left unshrunk, and values in between scale linearly. Cost is
+  unchanged.
+* **Reweighted l1**: after each λ step's regularised FISTA, it is re-solved twice with
+  Λ scaled by ε/(|h|+ε), ε = c·λ/L. This is the majorise-minimise scheme for the log
+  penalty (Candès, Wakin & Boyd 2008). It is about 1.7× slower.
+* **Amplitude loss**: fit |ifft2 h| to √D instead of |ifft2 h|² to D. It is a different
+  loss, but the λ schedule, stopping rule and debias step are unchanged.
+
+Mean similarity of the stopped model (solved / runs), using the paper's 3% sparsity
+criterion:
+
+| method | uniform 12.5% | uniform 25% | log-uniform 25% | log-uniform 50% |
+|---|---|---|---|---|
+| l1 (H-FISTA) | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
+| **MCP γ=3** | **0.75 (4/6)** | 0.20 (0/6) | **1.00 (6/6)** | **0.87 (4/6)** |
+| reweighted l1, c=1 | 0.49 (2/6) | 0.19 (0/6) | 0.99 (5/6) | 0.75 (3/6) |
+| reweighted l1, c=4 | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
+| amplitude loss | 0.25 (0/6) | 0.18 (0/6) | 0.90 (5/6) | 0.30 (0/6) |
+| amplitude loss + reweighted l1 | 0.25 (0/6) | 0.17 (0/6) | 1.00 (6/6) | 0.30 (0/6) |
+| adaptive 4 → 2 → 1 (above) | 0.69 (2/6) | **0.57 (1/6)** | 0.88 (4/6) | 0.80 (1/6) |
+| **MCP + adaptive, lower residual** | **0.76 (4/6)** | **0.57 (1/6)** | **1.00 (6/6)** | **0.89 (4/6)** |
+
+* **MCP is the best single change found on this branch.** It doubles the exact
+  recoveries in two hard regimes (2 → 4 of 6 each) and solves every easy case. No seed gets
+  worse by more than 0.01, and it costs no more than l1. The likely mechanism: l1 shrinks
+  strong components as much as weak ones, so the gradient left over after shrinkage
+  keeps pulling in wrong pixels. The firm threshold doesn't shrink strong components,
+  so that bias is gone.
+* **Reweighting is too weak a change.** H-FISTA already sets the penalty of approved
+  pixels to zero, which is the extreme form of reweighting. Reweighting within a λ step
+  adds little (one extra solved case, log-uniform 50%, c=1).
+* **The amplitude loss is worse.** It floods the model with components in the hard
+  regimes (≈25k non-zero pixels by step 60). Probably the λ schedule, which is set from
+  the intensity-loss gradient, doesn't suit it. I didn't tune it further.
+* **MCP and adaptive coarse-to-fine complement each other.** Keeping the lower-residual
+  stopped model of the two needs no truth. It has the best mean in every regime.
+  Including l1 as a third candidate changes nothing.
+
+Not yet checked: MCP on the paper's 512² data and on J1939. That is the obvious next
+run, because MCP alters which components get selected.
 
 ### The paper's own failure case (512² noise-free 25%)
 
