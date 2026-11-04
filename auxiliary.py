@@ -45,14 +45,15 @@ def free_mem_from_dict(io, keys=None, max_int=None):
     if keys is None:
         keys = io.keys()
 
-    if max_int is None:
-        max_int = max(io[key].keys())
     for key in keys:
-        for i in range(min(io[key].keys()), max_int):
+        if not io[key]:
+            continue
+        key_max = max(io[key].keys()) if max_int is None else max_int
+        for i in range(min(io[key].keys()), key_max):
             try:
                 del io[key][i]
             except (KeyError, ValueError) as e:
-                log.warn("Freeing up memory from dict exception: {e}")
+                log.debug(f"Freeing up memory from dict: {e!r}")
                 pass
 
     return io

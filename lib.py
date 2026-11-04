@@ -42,16 +42,36 @@ class Residual:
         self.sampling_time = 1.0
         self.sampling_freq = 1.0
 
-        self.wavefield = wavefield
-        self.H = ifftn(wavefield, workers=self.workers)
-
         self.Lipschitz_constant = -1
         self.RFI_mask = RFI_mask
 
+        self._set_state(wavefield)
+        self.set_Lipschitz_constant_grad()
+
+    # ------------------------------------------------------------------------------
+    # State handling
+    #
+    # The prediction and residual are always computed for the current wavefield (one
+    # inverse FFT). The derivative needs one more (forward) FFT and is only evaluated
+    # when requested, then cached until the wavefield changes. Evaluating the demerit
+    # therefore costs a single FFT, rather than three as before.
+    # ------------------------------------------------------------------------------
+    def _set_state(self, wavefield: np.ndarray):
+        self.wavefield = wavefield
+        self.H = ifftn(wavefield, workers=self.workers)
         self.set_prediction()
         self.set_residual()
-        self.set_derivative()
-        self.set_Lipschitz_constant_grad()
+        self._derivative = None
+
+    @property
+    def derivative(self):
+        if self._derivative is None:
+            self.set_derivative()
+        return self._derivative
+
+    @derivative.setter
+    def derivative(self, value):
+        self._derivative = value
 
     def set_Lipschitz_constant_grad(self):
         # calculated from definition, and using the fact that we will also be constraining solution to positive values of tau
@@ -74,12 +94,10 @@ class Residual:
     def get_func_val(self, wavefield: np.ndarray):
         """
         Calculate the sum of squared residuals for the provided wavefield.
-        If wavefield is null, return the sum of squared residuals for the current wavefield
+        If wavefield is None, return the sum of squared residuals for the current wavefield
         """
         if wavefield is not None:
-            self.wavefield = wavefield
-            self.H = ifftn(wavefield, workers=self.workers)
-            self.initialise()
+            self._set_state(wavefield)
 
         sum_resid_squared = np.sum(np.square(self.residual * self.RFI_mask))
         return sum_resid_squared
@@ -94,22 +112,25 @@ class Residual:
 
     def set_derivative(self):
         prod = np.prod(self.data.shape)
-        self.derivative = 2 / prod * fftn(self.residual * self.RFI_mask * self.H, workers=self.workers)
+        derivative = 2 / prod * fftn(self.residual * self.RFI_mask * self.H, workers=self.workers)
         if self.l2_penalty is not None:
-            self.derivative += self.l2_penalty * self.wavefield
+            derivative += self.l2_penalty * self.wavefield
+        self._derivative = derivative
 
     def get_derivative(self, wavefield: Optional[np.ndarray] = None):
         """
         Calculate the new values for the provided wavefield.
-        If wavefield is null, return existing values
+        If wavefield is None, return values for the current wavefield
         """
         if wavefield is not None:
-            self.wavefield = wavefield
-            self.initialise()
+            self._set_state(wavefield)
         return self.derivative
 
+    def get_func_val_and_derivative(self, wavefield: Optional[np.ndarray] = None):
+        """Demerit and derivative at wavefield, sharing the inverse FFT (2 FFTs in total)."""
+        if wavefield is not None:
+            self._set_state(wavefield)
+        return self.get_func_val(None), self.derivative
+
     def initialise(self):
-        self.H = ifftn(self.wavefield, workers=self.workers)
-        self.set_prediction()
-        self.set_residual()
-        self.set_derivative()
+        self._set_state(self.wavefield)

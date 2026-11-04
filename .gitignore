@@ -127,3 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Zenodo dataset (10.5281/zenodo.7007226), downloaded locally
+/data

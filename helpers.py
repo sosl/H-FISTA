@@ -42,7 +42,8 @@ def get_data(fname: str, byte_swap=True) -> np.ndarray:
             data_be = ds[0].data  # type: ignore
             # FITS uses big endian so let's swap the byte ordering
             if byte_swap:
-                data = data_be.newbyteorder().byteswap()
+                # equivalent to the former data_be.newbyteorder().byteswap(); works with numpy >= 2
+                data = data_be.astype(data_be.dtype.newbyteorder("="))
             else:
                 data = data_be
             return data

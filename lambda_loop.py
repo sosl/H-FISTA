@@ -5,9 +5,8 @@ from auxiliary import generate_narrowband_RFI_mask, update_RFI_mask
 import numpy as np
 
 import matplotlib.pyplot as plt
-from matplotlib.cm import get_cmap
+from matplotlib import colormaps
 from matplotlib.ticker import MaxNLocator
-import matplotlib.pyplot as plt
 from scipy.fft import fftshift
 
 import logging, logger
@@ -25,16 +24,19 @@ def hard_threshold(
 
     Return the thresholded array x and count of hard-thresholded components
     """
-    deleted = []
-    counter = 0
     threshold = factor * _lambda / L
-    for i, j in support:
-        if np.abs(x[i, j]) < threshold:
-            x[i, j] = 0.0 + 0.0j
-            counter += 1
-            deleted.append([i, j])
-            if len(coordinate_list) > 0:
-                coordinate_list = delete_coordinates_from_array(coordinate_list, i, j)
+    support = np.asarray(support, dtype=int).reshape(-1, 2)
+    below = np.abs(x[support[:, 0], support[:, 1]]) < threshold
+    deleted_arr = support[below]
+    counter = len(deleted_arr)
+    x[deleted_arr[:, 0], deleted_arr[:, 1]] = 0.0 + 0.0j
+    deleted = deleted_arr.tolist()
+    if len(coordinate_list) > 0 and counter > 0:
+        # remove the deleted coordinates from coordinate_list, preserving the order of the rest
+        coordinate_list = np.asarray(coordinate_list)
+        ncol = x.shape[1]
+        keep = ~np.isin(coordinate_list[:, 0] * ncol + coordinate_list[:, 1], deleted_arr[:, 0] * ncol + deleted_arr[:, 1])
+        coordinate_list = coordinate_list[keep]
     log.debug(f"Hard-thresholded {counter} elements with threshold {threshold} (factor was {factor})")
     log.debugv(f"Coordinates of the hard-thresholded components: {deleted}")
     return x, counter, coordinate_list, deleted
@@ -194,8 +196,7 @@ def take_lambda_step(
       The model itself and any auxiliary variables are stored in the io dictionary.
     """
 
-    log.setLevel(logger.DEBUGV if very_verbose else logging.INFO)
-    log.setLevel(logging.DEBUG if verbose else logging.INFO)
+    log.setLevel(logger.DEBUGV if very_verbose else (logging.DEBUG if verbose else logging.INFO))
     log.debug(f"Starting a λ step with {len(zero_penalty_coords)} approved components")
 
     # use the model and mask from the previous step as the initial values
@@ -317,7 +318,7 @@ def spy_waveform_progressive(
     per_column_legend=25,
     first_step=None,
     max_step=None,
-    cmap=get_cmap("viridis"),
+    cmap=colormaps["viridis"],
 ):
     x = np.array([])
     y = np.array([])
@@ -406,7 +407,7 @@ def get_initial_lambda(desired_components: int, max_negative_delay: int, resid: 
     # slice the parts of the gradient which we are allowing, taking the absolute value and flatten
 
     abs_flat_grad_part = np.abs(
-        rolled_gradient[:, : int(gradient.shape[1] / 2) + np.abs(max_negative_delay)]
+        rolled_gradient[:, : (gradient.shape[1] + 1) // 2 + np.abs(max_negative_delay)]
     ).flatten()
 
     # identify the (n+1)-th largest value in the flattened gradient

@@ -22,7 +22,7 @@ import logger
 log = logger.get_logger(__name__)
 
 
-def populate_step_zero_io(io, h_init, mask, args):
+def populate_step_zero_io(io, data, h_init, mask, args):
     step = 0
     io["niters"][step] = 0
     io["masks"][step] = mask
@@ -68,7 +68,7 @@ def initialise_wavefield(data, mask, init_coords):
     return h_init
 
 
-def get_lambda_loop_config(args, init_coords=[0, 0]):
+def get_lambda_loop_config(args, h_init, init_coords=[0, 0]):
     lambda_loop_config = {}
     fix_phase_value = 0.0
 
@@ -76,7 +76,6 @@ def get_lambda_loop_config(args, init_coords=[0, 0]):
         "backtrack": not args.no_backtrack,
         "fix_phase_coords": init_coords,
         "fix_phase_value": 0.0,
-        "force_more": False,
         "threshold_factor": args.T_H,
         "verbose": args.verbose,
         "delay_for_inf": -np.abs(args.max_negative_delay),
@@ -85,6 +84,17 @@ def get_lambda_loop_config(args, init_coords=[0, 0]):
         "RFI_window": args.RFI_chan_window,
     }
     return lambda_loop_config
+
+
+def str2bool(value) -> bool:
+    """argparse type for boolean options given as e.g. "True"/"False" (type=bool treats any non-empty string as True)"""
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    if value.lower() in ("no", "false", "f", "n", "0"):
+        return False
+    raise argparse.ArgumentTypeError(f"Boolean value expected, got {value!r}")
 
 
 def setup_argparse():
@@ -135,23 +145,23 @@ def setup_argparse():
         default=None,
         help="Initial value of λ. If provided, Nzero will be ingored.",
     )
-    HFISTA_config.add_argument("--spatial_stopping", default=True, help="Use the spatial stopping criterion")
+    HFISTA_config.add_argument("--spatial_stopping", type=str2bool, default=True, help="Use the spatial stopping criterion")
     HFISTA_config.add_argument(
-        "--spatial_threshold", default=1e-10, help="Threshold for the spatial stopping criterion"
+        "--spatial_threshold", type=float, default=1e-10, help="Threshold for the spatial stopping criterion"
     )
-    HFISTA_config.add_argument("--sparsity_stopping", default=True, help="Use the sparsity stopping criterion")
+    HFISTA_config.add_argument("--sparsity_stopping", type=str2bool, default=True, help="Use the sparsity stopping criterion")
     HFISTA_config.add_argument(
-        "--sparsity_threshold", default=0.03, help="Threshold for the sparsity stopping criterion"
+        "--sparsity_threshold", type=float, default=0.03, help="Threshold for the sparsity stopping criterion"
     )
     HFISTA_config.add_argument("--max_iterations", type=int, default=100, help="Maximum number of H-FISTA iterations")
 
     output_config = parser.add_argument_group("Output")
     output_config.add_argument("--prefix", type=str, help="Prefix for output files", default="HFISTA_out")
     output_config.add_argument(
-        "--sparse", type=bool, default=True, help="Save sparse wavefield in addition to the dense wavefield"
+        "--sparse", type=str2bool, default=True, help="Save sparse wavefield in addition to the dense wavefield"
     )
     output_config.add_argument(
-        "--full", type=bool, default=False, help="Save full output, useful for resuming, debugging, etc."
+        "--full", type=str2bool, default=False, help="Save full output, useful for resuming, debugging, etc."
     )
     output_config.add_argument(
         "--partial-frequency",
@@ -185,9 +195,9 @@ if __name__ == "__main__":
     mask = initialise_mask(data, args)
     h_init = initialise_wavefield(data, mask, init_coords)
     io = initialize_io_dict()
-    populate_step_zero_io(io, h_init, mask, args)
+    populate_step_zero_io(io, data, h_init, mask, args)
 
-    lambda_loop_config = get_lambda_loop_config(args)
+    lambda_loop_config = get_lambda_loop_config(args, h_init, init_coords)
     chosen_step = -1
 
     for step in range(1, args.max_iterations + 1):
@@ -203,7 +213,8 @@ if __name__ == "__main__":
         if args.outsteps > 0:
             if args.sparse and step % args.outsteps == 0:
                 write_object(args.prefix, postfix=f"part_at_{step}", object=io)
-                free_mem_from_dict(io)
+                # keep the current and previous steps: both are needed by the stopping criteria
+                free_mem_from_dict(io, max_int=step - 1)
 
         if step > 1:
             if check_stopping(
@@ -222,7 +233,7 @@ if __name__ == "__main__":
 
     if args.full:
         write_object(args.prefix, postfix=None, object=io)
-    if chosen_step > 1:
+    if chosen_step >= 1:
         if args.sparse:
             write_object(args.prefix, postfix="sparse", object=io["models"][chosen_step])
         dense_wavefield = get_dense_solution(io["models"][chosen_step], data, io["masks"][chosen_step])

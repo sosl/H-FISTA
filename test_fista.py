@@ -1,4 +1,3 @@
-from numpy.lib.function_base import angle
 from lib import Residual
 from test_helpers import Model2componentTestCaseData, resid_fixture
 import numpy as np
