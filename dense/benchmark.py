@@ -44,6 +44,8 @@ METHODS = {
     "group4": dict(method="group", block_sizes=[4]),
     "c2f": dict(method="group", block_sizes=[4] * 8 + [2] * 8 + [1]),
     "c2f2": dict(method="group", block_sizes=[2] * 15 + [1]),
+    "ac2f": dict(method="group", levels=[4, 2, 1], stop_on_final_plateau=True),
+    "ac2f8": dict(method="group", levels=[8, 4, 2, 1], stop_on_final_plateau=True),
 }
 
 
@@ -91,7 +93,8 @@ def main():
                 last = per_step[-1] if per_step else None
                 sc = support_scores(io["models"][last["step"]], sim.wavefield) if per_step and err is None else None
                 rec = dict(regime=regime, seed=seed, method=name, n_true=sim.params["n_components"], wall=wall, error=err,
-                           last=last, best=best, support=sc, steps=per_step)
+                           last=last, best=best, support=sc, steps=per_step,
+                           plateaus=io.get("plateaus", []) if err is None else [])
                 with open(a.out, "a") as fh:
                     fh.write(json.dumps(rec) + "\n")
                 print(f"{regime} seed {seed} {name:>11}: last sim {last['sim'] if last else float('nan'):.4f} resid {last['resid'] if last else float('nan'):.2e} "

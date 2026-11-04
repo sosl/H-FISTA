@@ -167,9 +167,18 @@ def run_variant(
     stop: Optional[Callable] = None,
     step_callback: Optional[Callable] = None,
     eta: float = 1.1,
+    levels: Optional[Sequence[int]] = None,
+    plateau_tol: float = 0.03,
+    stop_on_final_plateau: bool = False,
 ):
     """method: "l1", "elastic" (with beta) or "group" (with block_sizes: one per stage, the last
-    value repeating; e.g. [4]*10 + [2]*10 + [1]). Returns io, chosen step."""
+    value repeating; e.g. [4]*10 + [2]*10 + [1]).
+
+    levels (group only), e.g. [4, 2, 1]: adaptive coarse-to-fine. Stay at a block size until the
+    number of non-zero pixels plateaus (grows by <= plateau_tol between λ steps, after having
+    grown at this level), then move to the next, finer block size. With stop_on_final_plateau,
+    a plateau at the last level ends the run (chosen = that step).
+    Returns io, chosen step."""
     N, M = data.shape
     if mask is None:
         mask = np.ones_like(data)
@@ -182,10 +191,14 @@ def run_variant(
     io = {"models": {0: h}, "lambdas": {0: lam_init}, "masks": {0: mask}, "Ls": {}, "demerits": {}, "block": {}}
     approved = np.array([[0, 0]])
     chosen = -1
+    level, n_level_start, n_prev = 0, None, None
+    io["plateaus"] = []
     for step in range(1, max_steps + 1):
         lam = io["lambdas"][step - 1] / lambda_scale
         k = 1
-        if method == "group":
+        if method == "group" and levels:
+            k = levels[level]
+        elif method == "group":
             bs = list(block_sizes or [2])
             k = bs[min(step - 1, len(bs) - 1)]
         reg = Reg(kind=method, k=k, beta=beta, lam_ratio=lam / lam_init)
@@ -227,6 +240,19 @@ def run_variant(
         io["block"][step] = k
         if step_callback is not None:
             step_callback(io, step)
+        if method == "group" and levels:
+            n = int(np.count_nonzero(fit))
+            if n_level_start is None:
+                n_level_start = n
+            elif n_prev is not None and n > n_level_start and n <= n_prev * (1 + plateau_tol):
+                io["plateaus"].append((step, k))
+                if level < len(levels) - 1:
+                    level += 1
+                    n_level_start = None
+                elif stop_on_final_plateau:
+                    chosen = step
+                    break
+            n_prev = n
         if stop is not None and step > 1 and stop(io, step):
             chosen = step - 1
             break
