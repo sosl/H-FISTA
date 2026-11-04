@@ -107,9 +107,32 @@ iterations remove them one after another. Stopped after 32 of 48 runs
 would be needed. Not pursued, because MCP also failed on the paper's data on
 `claude/dense-wavefields`.
 
+### Greedy as a first pass for H-FISTA (`hybrid.py`): no better than greedy alone
+
+Greedy pursuit runs until its model has 60, 250 or 1000 components (hyb60/250/1000). H-FISTA
+then continues from that model (`run_variant(h_init=...)`, λ restarted from the model's
+gradient). Same 256² benchmark, model at the paper's 3% sparsity rule (`results/hybrid256.jsonl`).
+Mean similarity, with the number solved out of 6 in brackets:
+
+| regime | l1 | greedy | hyb60 | hyb250 | hyb1000 |
+|---|---|---|---|---|---|
+| U12 | 0.49 (2) | 0.63 (2) | 0.49 (2) | 0.55 (2) | 0.64 (2) |
+| U25 | 0.19 (0) | 0.20 (0) | 0.18 (0) | 0.19 (0) | 0.19 (0) |
+| L25 | 1.00 (6) | 0.99 (5) | 0.99 (5) | 0.99 (5) | 0.99 (5) |
+| L50 | 0.64 (2) | 0.75 (3) | 0.64 (2) | 0.75 (3) | 0.75 (3) |
+
+* **The hybrid never beats greedy alone.**
+  * With a small first pass it reproduces l1. On U12 seed 0, greedy's 0.97 is lost
+    (hyb60: 0.23).
+  * With a large first pass it keeps what greedy found. H-FISTA's continuation then adds
+    nothing.
+* **It inherits greedy's failures:** L25 seed 4 is solved by l1 but not by greedy (0.92),
+  and not by any hybrid, even hyb60 (0.93).
+* This fits the concern that H-FISTA's value is in not letting twin structure in from
+  the start: once a broad support is in, H-FISTA does not remove it.
+
 ## Open next steps
 
-* greedy as a cheap first pass, followed by H-FISTA from its support;
 * in-repo use: greedy as an optional solver next to H-FISTA, since it reaches the same
   answers on the paper's data at 1.4–7× lower cost.
 
@@ -118,4 +141,5 @@ would be needed. Not pursued, because MCP also failed on the paper's data on
 * `pursuit.py`: `greedy_pursuit` (with `h_init` to start from a given model, `jitter`/`seed`),
   `restarted_pursuit`, `FFTCounter`
 * `benchmark.py`, `summarize.py`; `results/bench256*.jsonl`, `results/l1_ffts.jsonl`, `results/summary256.md`
+* `hybrid.py`; `results/hybrid256.jsonl`
 * `paper_data.py` (with `noise_variance`, `noise_floor_stop`, `paper_stop` in `pursuit.py`), `l1_paper_ffts.py`; `results/paper/`
