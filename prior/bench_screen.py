@@ -48,6 +48,19 @@ def run_l1(D, n0=15):
     return io["models"][s], dict(step=s)
 
 
+GROUP = {  # block (group-lasso) variants: favour locally dense clusters over single components
+    "group2": dict(method="group", block_sizes=[2]),
+    "c2f2": dict(method="group", block_sizes=[2] * 15 + [1]),
+    "ac2f": dict(method="group", levels=[4, 2, 1], stop_on_final_plateau=True),
+}
+
+
+def run_group(D, m, n0=15):
+    io, chosen = run_variant(D, desired_components=n0, max_steps=60, stop=check_stopping, **GROUP[m])
+    s = chosen if chosen > 0 else max(io["models"])
+    return io["models"][s], dict(step=s)
+
+
 def run_greedy(D):
     from prior.greedy_local import greedy_pursuit, noise_variance  # copied from claude/greedy-pursuit
 
@@ -94,7 +107,7 @@ def main():
                 if (regime, seed, m) in done:
                     continue
                 t0 = time.time()
-                h, info = run_l1(D) if m == "l1" else run_greedy(D)
+                h, info = run_l1(D) if m == "l1" else run_group(D, m) if m in GROUP else run_greedy(D)
                 t1 = time.time()
                 d = get_dense_solution(h, D, np.ones_like(D), iterations=1000)
                 rec = dict(regime=regime, seed=seed, method=m, params=sim.params, info=info, n=int(np.count_nonzero(h)),
