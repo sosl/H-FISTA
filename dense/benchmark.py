@@ -26,7 +26,7 @@ import fista as F  # noqa: E402
 
 F.PROX_IMPLEMENTATION = "fast"
 from simulate import simulate_regions, wavefield_similarity, relative_residual, support_scores  # noqa: E402
-from dense.variants import run_variant  # noqa: E402
+from dense.variants import run_variant, adaptive_weights  # noqa: E402
 
 REGIMES = {
     # name: (density, decades)
@@ -49,6 +49,9 @@ METHODS = {
     # non-convex / reweighted penalties and the amplitude loss
     "mcp3": dict(method="mcp", gamma=3.0),
     "mcp10": dict(method="mcp", gamma=10.0),
+    # adaptive lasso: λ weighted by a holographic pilot estimate from the secondary spectrum
+    "alasso1": dict(method="l1", weights=dict(power=1.0)),
+    "alasso05": dict(method="l1", weights=dict(power=0.5)),
     "rw1": dict(method="l1", reweight_passes=2, reweight_c=1.0),
     "rw4": dict(method="l1", reweight_passes=2, reweight_c=4.0),
     "amp": dict(method="l1", loss="amplitude"),
@@ -91,7 +94,10 @@ def main():
 
                 t0 = time.time()
                 try:
-                    io, _ = run_variant(sim.data, desired_components=a.n0, max_steps=a.steps, step_callback=cb, **METHODS[name])
+                    kw = dict(METHODS[name])
+                    if "weights" in kw:
+                        kw["lambda_weights"] = adaptive_weights(sim.data, **kw.pop("weights"))
+                    io, _ = run_variant(sim.data, desired_components=a.n0, max_steps=a.steps, step_callback=cb, **kw)
                     err = None
                 except Exception as e:  # record failures (e.g. prox emptied the model)
                     err = f"{type(e).__name__}: {e}"

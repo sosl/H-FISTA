@@ -18,7 +18,7 @@ from collections import defaultdict
 import numpy as np
 
 SPARSITY = 0.03
-ORDER = ["l1", "elastic0.1", "elastic0.5", "group2", "group4", "c2f2", "c2f", "ac2f", "ac2f8", "mcp3", "mcp10", "rw1", "rw4", "amp", "amp_rw1"]
+ORDER = ["l1", "elastic0.1", "elastic0.5", "group2", "group4", "c2f2", "c2f", "ac2f", "ac2f8", "mcp3", "mcp10", "alasso1", "alasso05", "rw1", "rw4", "amp", "amp_rw1"]
 LABEL = {
     "l1": "l1 (H-FISTA)",
     "elastic0.1": "elastic net β=0.1",
@@ -31,6 +31,8 @@ LABEL = {
     "ac2f8": "adaptive 8 → 4 → 2 → 1",
     "mcp3": "MCP γ=3 (firm threshold)",
     "mcp10": "MCP γ=10",
+    "alasso1": "adaptive lasso (pilot^-1)",
+    "alasso05": "adaptive lasso (pilot^-0.5)",
     "rw1": "reweighted l1, c=1",
     "rw4": "reweighted l1, c=4",
     "amp": "amplitude loss",
