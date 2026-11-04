@@ -86,7 +86,16 @@ method stops. H-FISTA is the published loop (`l1_paper_ffts.py`).
   J1939 the truth-free diagnostics match H-FISTA's.
 * Like H-FISTA it does not solve the 25% simulation.
 * On J1939 neither noise rule fires before the 3% cap (χ² = 2.3 at the cap). This matches
-  H-FISTA, which also stops by sparsity there.
+  H-FISTA, which also stops by sparsity there. Run alone, greedy took 26 min to the cap.
+  The greedy and H-FISTA fields agree at 0.60 (|<E_a, E_b>|/norms over the observed,
+  unmasked times). That is the normal spread on J1939 between models that fit the data
+  about equally well: MCP vs l1 and padded vs original l1 also give 0.62
+  (`claude/dense-wavefields`, dense/README.md).
+
+| | greedy | H-FISTA |
+|---|---|---|
+| sparse | ![](results/paper/J1939_magnitude_sparse.png) | ![](../dense/results/J1939_l1_sparse.png) |
+| dense | ![](results/paper/J1939_magnitude_dense.png) | ![](../dense/results/J1939_l1_dense.png) |
 
 ### Pruning with MCP: does not work as implemented
 
@@ -100,7 +109,6 @@ would be needed. Not pursued, because MCP also failed on the paper's data on
 
 ## Open next steps
 
-* J1939: compare the greedy model with H-FISTA's (field similarity, images);
 * greedy as a cheap first pass, followed by H-FISTA from its support;
 * in-repo use: greedy as an optional solver next to H-FISTA, since it reaches the same
   answers on the paper's data at 1.4–7× lower cost.
