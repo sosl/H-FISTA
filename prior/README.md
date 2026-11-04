@@ -213,6 +213,25 @@ Fresnel scale. Mean dense similarity over 4 seeds, H-FISTA → PnP:
 * **Denoising quality is not the bottleneck.** The remaining error is the twin ambiguity,
   which a better denoiser of single fields does not break.
 
+**A twin-aware refiner: learns nothing** (`pairs.py`, `refiner.py`, `refiner_diag.py`).
+* **Network:** a dilated CNN (receptive field ~100 px) trained to map H-FISTA's densified
+  model to the true wavefield.
+* **Data:** 1600 broad-family screens, seeds disjoint from the tests. The truth is aligned
+  to the model (phase, shift, twin). Loss: 1 − similarity.
+* **Result: it collapses to the identity.** Corrections shrink to ~0.3% of the rms
+  within tens of steps, and the validation similarity stays at the input's (0.313). On
+  all test settings the refined model equals H-FISTA's (`results/refiner128_eval.jsonl`).
+* **Diagnostic.** In a compressed per-pixel domain, predicting zero for the faint
+  pixels beats keeping H-FISTA's values (MSE 0.019 vs 0.031). A network trained there
+  improves on the identity (0.025) but not on zero. H-FISTA's faint structure is mostly
+  wrong, and nothing in the model says how to correct it.
+* **Interpretation.** Given only H-FISTA's model, the missing (truth − model) part is not
+  predictable. That's consistent with a twin ambiguity: both corrections are equally
+  likely, so the conditional mean is ~0. PnP does better because it keeps using the data
+  at every step. A refiner would also need the data (or the secondary spectrum) as input,
+  i.e. an unrolled network. `claude/neural-weight-space` explored that on point-component
+  fields.
+
 ## Next steps if pursued
 
 * Train at 256²/512² and with several screens or other inner scales.
