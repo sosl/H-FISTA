@@ -29,7 +29,8 @@ import numpy as np
 import fista as F
 from fista import construct_lambda_matrix
 from lib import Residual
-from dense.variants import fista_generic
+from dense.variants import fista_generic, firm_threshold
+from auxiliary import generate_narrowband_RFI_mask, update_RFI_mask
 
 log = logging.getLogger("H-FISTA.greedy")
 
@@ -85,11 +86,24 @@ def greedy_pursuit(
     jitter: float = 0.0,
     seed: int = 0,
     h_init: Optional[np.ndarray] = None,
+    prune_rule: str = "magnitude",
+    gamma: float = 3.0,
+    clean_RFI: bool = False,
+    stop: Optional[Callable] = None,
+    masks_out: Optional[dict] = None,
 ):
     """Returns (models per round, trace). Stops when the support would exceed max_fraction of
     the pixels (the paper's sparsity criterion: the last model below it is the answer).
     jitter > 0 multiplies the selection scores by exp(jitter * N(0, 1)): a randomised
-    selection for restarts (GESPAR also restarts from random supports)."""
+    selection for restarts (GESPAR also restarts from random supports).
+    prune_rule: "magnitude" keeps the |S| + k largest |h|; "mcp" instead re-solves on the
+    enlarged support with the MCP penalty (firm threshold, concavity gamma), its threshold
+    set at the |S| + k-th largest |h|, and keeps what survives (the penalised fit decides,
+    not the raw magnitudes of an unpenalised fit).
+    clean_RFI: update the mask after every refit as H-FISTA does.
+    stop(models, masks, rnd) -> bool: the run ends after the round where it returns True;
+    models[rnd - 1] is then the answer (as in H-FISTA, the step before the criterion fires).
+    Returns models, or (models, masks, chosen) when stop is given."""
     rng = np.random.default_rng(seed)
     N, M = data.shape
     mask = np.ones_like(data) if mask is None else mask
@@ -102,6 +116,9 @@ def greedy_pursuit(
     S = h != 0
     S[0, 0] = True
     models = {0: h.copy()}
+    masks = {} if masks_out is None else masks_out  # masks_out: the caller sees each round's mask
+    masks[0] = mask
+    chosen = -1
     cap = max_fraction * N * M
     for rnd in range(1, max_rounds + 1):
         n = int(S.sum())
@@ -122,7 +139,22 @@ def greedy_pursuit(
         S2 = S.copy()
         S2.ravel()[cand] = True
         h, L = refit(data, h, S2, mask, refit_iters)
-        if prune and S2.sum() > n + k:
+        if clean_RFI:
+            mask = update_RFI_mask(mask, generate_narrowband_RFI_mask(Residual(data, h, None, mask).residual, 0, 5.0, 21))
+        if prune and prune_rule == "mcp" and S2.sum() > n + k:
+            a = np.abs(h).ravel().copy()
+            a[0] = np.inf
+            a[~S2.ravel()] = -np.inf
+            t = np.partition(a, -(n + k))[-(n + k)]  # threshold at the (n+k)-th largest
+            Lam = np.where(S2, t * L, np.inf)
+            Lam[0, 0] = 0.0
+            r = Residual(data, h, None, mask)
+            h, _, L = fista_generic(r, h, lambda z, LL: firm_threshold(z, Lam * LL / L, LL, gamma), refit_iters,
+                                    r.get_Lipschitz_constant_grad())
+            S = h != 0
+            S[0, 0] = True
+            h, L = refit(data, h, S, mask, refit_iters)
+        elif prune and S2.sum() > n + k:
             a = np.abs(h).ravel().copy()
             a[0] = np.inf  # keep the origin
             keep = np.argpartition(a, -(n + k))[-(n + k):]
@@ -134,8 +166,14 @@ def greedy_pursuit(
             S = S2
         S &= h != 0
         models[rnd] = h
+        masks[rnd] = mask
         if round_callback is not None:
             round_callback(models, rnd)
+        if stop is not None and stop(models, masks, rnd):
+            chosen = rnd - 1
+            break
+    if stop is not None:
+        return models, masks, chosen
     return models
 
 
@@ -153,3 +191,44 @@ def restarted_pursuit(data, restarts=8, jitter=0.3, mask=None, **kw):
         j = int(np.argmin(res))
         models[k], chosen[k] = runs[j][k], j
     return models, chosen
+
+
+# ------------------------------------------------------------------------------------
+# stopping rules for noisy data
+# ------------------------------------------------------------------------------------
+def noise_variance(data, mask=None, outer=0.25):
+    """Per-pixel noise variance of the dynamic spectrum from its secondary spectrum.
+    White noise spreads evenly over the conjugate plane, scattered power sits at small
+    |delay| and |Doppler|: the outer `outer` fraction in both |Doppler| and |delay| is
+    taken as noise. Median-based (robust to a few signal pixels): for |.|^2 of complex
+    Gaussian noise, mean = median / ln 2."""
+    mask = np.ones_like(data) if mask is None else mask
+    d = (data - np.sum(data * mask) / np.sum(mask)) * mask
+    P = np.abs(np.fft.fft2(d)) ** 2
+    N, M = data.shape
+    fd, ft = np.abs(np.fft.fftfreq(N)), np.abs(np.fft.fftfreq(M))
+    outer_region = (fd[:, None] > 0.5 - outer / 2) & (ft[None, :] > 0.5 - outer / 2)
+    mean_power = np.median(P[outer_region]) / np.log(2)
+    return float(mean_power / np.sum(mask))  # Parseval: Σ|fft2 n|^2 = N M Σ n^2 (masked pixels: Σ mask)
+
+
+def noise_floor_stop(data, factor=1.0, solved=1e-6):
+    """stop once the masked squared residual is within `factor` of the expected noise power"""
+    def stop(models, masks, rnd):
+        m = masks[rnd]
+        sigma2 = noise_variance(data, m)
+        res = np.abs(np.fft.ifft2(models[rnd])) ** 2 - data
+        chi2 = np.sum((res * m) ** 2) / (sigma2 * np.sum(m))
+        rel = np.linalg.norm(res * m) / np.linalg.norm(data * m)
+        return chi2 <= factor or rel < solved
+    return stop
+
+
+def paper_stop(**kw):
+    """the paper's stopping criteria (sparsity 3% + KS test on the Doppler distribution of the
+    components new in this round), as for H-FISTA"""
+    from stopping import check_stopping
+
+    def stop(models, masks, rnd):
+        return rnd > 1 and check_stopping({"models": models}, rnd, **kw)
+    return stop

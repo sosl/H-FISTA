@@ -36,6 +36,8 @@ METHODS = {
     "greedy_fast": dict(growth=0.4, prune=True),
     "greedy_r8": dict(growth=0.15, prune=True, restarts=8, jitter=0.3),
     "greedy_r8j1": dict(growth=0.15, prune=True, restarts=8, jitter=1.0),
+    "greedy_mcp": dict(growth=0.15, prune=True, prune_rule="mcp"),
+    "greedy_mcp_g2": dict(growth=0.15, prune=True, prune_rule="mcp", gamma=2.0),
     "l1": None,  # H-FISTA through dense.variants (bitwise identical to the published loop), for FFT counts
 }
 
