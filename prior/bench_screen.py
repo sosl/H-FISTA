@@ -37,7 +37,7 @@ from simulate import wavefield_similarity, relative_residual  # noqa: E402
 from stopping import check_stopping  # noqa: E402
 from densify import get_dense_solution  # noqa: E402
 from dense.variants import run_variant  # noqa: E402
-from prior.screen import simulate_screen  # noqa: E402
+from prior.screen import simulate_screen, twin_split  # noqa: E402
 
 REGIMES = {"S3": 3.0, "S10": 10.0, "S30": 30.0}
 
@@ -100,11 +100,13 @@ def main():
                 rec = dict(regime=regime, seed=seed, method=m, params=sim.params, info=info, n=int(np.count_nonzero(h)),
                            sparse_sim=float(wavefield_similarity(h, T)), dense_sim=float(wavefield_similarity(d, T)),
                            sparse_resid=relative_residual(D, h), dense_resid=relative_residual(D, d),
-                           wall_solver=t1 - t0, wall=time.time() - t0)
+                           wall_solver=t1 - t0, wall=time.time() - t0,
+                           sparse_split=twin_split(h, T), dense_split=twin_split(d, T))
                 with open(a.out, "a") as fh:
                     fh.write(json.dumps(rec) + "\n")
                 print(f"{regime} seed {seed} {m:>6}: n {rec['n']} sparse {rec['sparse_sim']:.3f} dense {rec['dense_sim']:.3f} "
-                      f"resid {rec['sparse_resid']:.3f}/{rec['dense_resid']:.1e} {info} {rec['wall_solver']:.0f}s", flush=True)
+                      f"resid {rec['sparse_resid']:.3f}/{rec['dense_resid']:.1e} true/twin {rec['dense_split']['true']:.2f}/"
+                      f"{rec['dense_split']['twin']:.2f} {info} {rec['wall_solver']:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
