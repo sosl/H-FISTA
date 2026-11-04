@@ -96,7 +96,8 @@ def main():
             r["sparse_sim"] = float(wavefield_similarity(m, truth))
             r["dense_sim"] = float(wavefield_similarity(dense, truth))
         out["results"][rule] = r
-        if rule == ("paper" if "paper" in keep else "chi2"):
+        save_rule = next(r_ for r_ in ("paper", "chi2", "cap") if r_ in keep)  # first rule that fired; the cap always exists
+        if rule == save_rule:
             idx = np.flatnonzero(m)
             np.savez_compressed(a.out + "_sparse.npz", shape=m.shape, idx=idx, val=m.ravel()[idx])
             save_image(m, a.out + "_sparse.png", f"{a.dataset} greedy ({a.prune_rule}, {rule} stop): sparse model ({r['n']} comp.)")

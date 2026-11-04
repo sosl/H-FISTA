@@ -30,10 +30,19 @@ It starts from the same single origin component as H-FISTA and has no λ and no
 threshold schedule. Unlike H-FISTA's approval, step 4 can remove a component found
 earlier.
 
-It stops when the noise-free data are fitted (relative residual < 1e-6), or otherwise
-at the paper's 3% sparsity cap. A residual-plateau rule doesn't work, because the
-residual barely moves in the first rounds. Noisy data will need a noise-level rule
-(not done yet).
+Stopping rules (a residual-plateau rule does not work: the residual barely moves in the
+first rounds):
+
+* **noise level (χ²)**: stop when the masked squared residual reaches the noise power,
+  estimated from the outer quarter (in both |Doppler| and |delay|) of the secondary
+  spectrum, where white noise dominates (`noise_variance`; median-based). On the paper's
+  noisy 12.5% simulation the *true* wavefield gives χ² = 0.996, so the estimate is
+  accurate there. Noise-free data: stop when the relative residual is < 1e-6.
+* **the paper's criteria**: 3% sparsity and the KS test on the Doppler distribution of
+  the components new in a round; the answer is the round before the first trigger.
+* otherwise the 3% cap.
+
+With RFI cleaning on, the mask is updated after each refit, as in H-FISTA.
 
 ## Results (`results/summary256.md`)
 
@@ -58,15 +67,47 @@ on this machine.
 * **Locally dense uniform-modulus wavefields (uniform 25%) stay unsolved** by every
   method, as with H-FISTA.
 
+## The paper's data (`paper_data.py`, `results/paper/`)
+
+Notebook configuration (masks, RFI cleaning). Cost is FFTs up to the point where each
+method stops. H-FISTA is the published loop (`l1_paper_ffts.py`).
+
+| dataset | greedy stop | greedy | H-FISTA | FFTs greedy / H-FISTA |
+|---|---|---|---|---|
+| simulated 12.5%, noise-free | data fitted (round 29) | **exact** (695 comp.) | exact (647 comp.) | 5.7k / 39k (**6.9× fewer**) |
+| simulated 12.5%, noisy | χ² (round 27); the paper's criteria fire at round 29 | **similarity 1.00** (525 comp.; 695 at the paper's stop) | 1.00 (596 comp.) | 5.3k / 21k (**4.0× fewer**) |
+| J0837+0610 | χ² (round 44); the paper's criteria at round 40 | 5672 comp.; dense residual 0.070, neg.-delay power 3.1% (3241 comp., 3.3% at the paper's stop) | 4526 comp.; 0.070, 3.2% | 8.9k / 12.9k (1.4× fewer) |
+| simulated 25%, noise-free | cap (no rule fires) | sparse residual 0.044 (7502 comp.) | 0.041 (7583; sparsity criterion) | 9.2k / 18.5k (2.0× fewer) |
+| J1939+2134 | cap (no rule fires; χ² still 2.3) | 53 102 comp.; sparse residual 0.155, neg.-delay power 0.98% | 55 225 comp.; 0.155, 1.0% | 11.9k FFTs; 25 min vs 46 min wall (both alongside other jobs) |
+
+* **Greedy reproduces H-FISTA's results on the paper's data at a fraction of the cost**:
+  both 12.5% simulations are recovered exactly with 4–7× fewer FFTs, and the noise-level
+  rule stops it at the right place on the noisy one. On J0837, the 25% simulation and
+  J1939 the truth-free diagnostics match H-FISTA's.
+* Like H-FISTA it does not solve the 25% simulation.
+* On J1939 neither noise rule fires before the 3% cap (χ² = 2.3 at the cap). This matches
+  H-FISTA, which also stops by sparsity there.
+
+### Pruning with MCP: does not work as implemented
+
+`prune_rule="mcp"` re-solves the enlarged support with the firm threshold, its threshold
+set at the |S| + k-th largest |h|. The support collapses to the origin every round:
+components near the threshold are shrunk below it in the first iteration, so the FISTA
+iterations remove them one after another. Stopped after 32 of 48 runs
+(`results/bench256_mcp.jsonl`). A threshold well below the kept set's smallest value
+would be needed. Not pursued, because MCP also failed on the paper's data on
+`claude/dense-wavefields`.
+
 ## Open next steps
 
-* a noise-aware stopping rule (residual reaching the noise level), then the paper's
-  noisy simulation and J0837/J1939;
-* pruning with the firm threshold that worked on `claude/dense-wavefields` (MCP);
-* greedy as a cheap first pass, followed by H-FISTA or MCP from its support.
+* J1939: compare the greedy model with H-FISTA's (field similarity, images);
+* greedy as a cheap first pass, followed by H-FISTA from its support;
+* in-repo use: greedy as an optional solver next to H-FISTA, since it reaches the same
+  answers on the paper's data at 1.4–7× lower cost.
 
 ## Files
 
 * `pursuit.py`: `greedy_pursuit` (with `h_init` to start from a given model, `jitter`/`seed`),
   `restarted_pursuit`, `FFTCounter`
 * `benchmark.py`, `summarize.py`; `results/bench256*.jsonl`, `results/l1_ffts.jsonl`, `results/summary256.md`
+* `paper_data.py` (with `noise_variance`, `noise_floor_stop`, `paper_stop` in `pursuit.py`), `l1_paper_ffts.py`; `results/paper/`

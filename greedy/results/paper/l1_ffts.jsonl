@@ -1,2 +1,10 @@
 2026-11-04 09:11:21,972 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/simulated/simulated_12.5percent_wnoise.pkl as a psrflux ASCII file failed. Trying to load as a FITS file.
 2026-11-04 09:11:21,973 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/simulated/simulated_12.5percent_wnoise.pkl as a FITS file failed. Trying to load as a pickle
+{"dataset": "sim12.5", "chosen": 38, "selected": 38, "n": 596, "fft": 21477, "wall": 159.7587263584137}
+2026-11-04 09:14:01,736 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/simulated/simulated_12.5percent_noisefree.pkl as a psrflux ASCII file failed. Trying to load as a FITS file.
+2026-11-04 09:14:01,737 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/simulated/simulated_12.5percent_noisefree.pkl as a FITS file failed. Trying to load as a pickle
+{"dataset": "sim12.5NF", "chosen": -1, "selected": 66, "n": 647, "fft": 39060, "wall": 300.57235050201416}
+2026-11-04 09:19:02,311 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/J0837+0610.fits as a psrflux ASCII file failed. Trying to load as a FITS file.
+{"dataset": "J0837", "chosen": 23, "selected": 23, "n": 4526, "fft": 12871, "wall": 102.52003836631775}
+2026-11-04 09:20:44,834 - H-FISTA.helpers - WARNING - Loading /home/user/wt-greedy/data/simulated/simulated_25percent_noisefree.fits as a psrflux ASCII file failed. Trying to load as a FITS file.
+{"dataset": "sim25NF", "chosen": 33, "selected": 33, "n": 7583, "fft": 18456, "wall": 149.4278154373169}
