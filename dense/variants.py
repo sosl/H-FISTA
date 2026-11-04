@@ -36,22 +36,32 @@ log = logging.getLogger("H-FISTA.dense")
 # block helpers (blocks are aligned on the fftshifted grid, so they are contiguous in
 # signed Doppler/delay)
 # ------------------------------------------------------------------------------------
+def _blocks(n, k):
+    return -(-n // k)  # ceil(n / k): a dimension that is not a multiple of k gets a partial last block
+
+
 def block_reduce(a: np.ndarray, k: int) -> np.ndarray:
-    """sum of a over k x k blocks of the fftshifted array -> (N/k, M/k)"""
+    """sum of a over k x k blocks of the fftshifted array -> (ceil(N/k), ceil(M/k))"""
     s = fftshift(a)
     N, M = s.shape
-    return s.reshape(N // k, k, M // k, k).sum(axis=(1, 3))
+    nb, mb = _blocks(N, k), _blocks(M, k)
+    if nb * k != N or mb * k != M:
+        s = np.pad(s, ((0, nb * k - N), (0, mb * k - M)))
+    return s.reshape(nb, k, mb, k).sum(axis=(1, 3))
 
 
-def block_expand(b: np.ndarray, k: int) -> np.ndarray:
-    """inverse layout of block_reduce: (N/k, M/k) -> unshifted (N, M), constant on blocks"""
-    return ifftshift(np.kron(b, np.ones((k, k), dtype=b.dtype)))
+def block_expand(b: np.ndarray, k: int, shape=None) -> np.ndarray:
+    """inverse layout of block_reduce: blocks -> unshifted array of `shape`, constant on blocks"""
+    full = np.kron(b, np.ones((k, k), dtype=b.dtype))
+    if shape is not None:
+        full = full[: shape[0], : shape[1]]
+    return ifftshift(full)
 
 
 def block_ids(shape, k):
     N, M = shape
-    ids = np.arange((N // k) * (M // k)).reshape(N // k, M // k)
-    return block_expand(ids, k)
+    ids = np.arange(_blocks(N, k) * _blocks(M, k)).reshape(_blocks(N, k), _blocks(M, k))
+    return block_expand(ids, k, shape)
 
 
 # ------------------------------------------------------------------------------------
@@ -82,7 +92,7 @@ class Reg:
         thr_b = np.where(approved_b, 0.0, lam_b * k / L)
         with np.errstate(divide="ignore", invalid="ignore"):
             scale_b = np.where(bn > thr_b, 1.0 - thr_b / bn, 0.0)
-        x = z * block_expand(scale_b, k)
+        x = z * block_expand(scale_b, k, z.shape)
         if np.count_nonzero(x) == 0:
             raise ValueError("group prox: λ/L too large, no elements left")
         return x
@@ -92,7 +102,7 @@ class Reg:
         if self.kind != "group" or self.k == 1:
             return np.transpose(np.nonzero(x))
         nzb = block_reduce((x != 0).astype(float), self.k) > 0
-        pix = block_expand(nzb, self.k) & allowed
+        pix = block_expand(nzb, self.k, x.shape) & allowed
         return np.transpose(np.nonzero(pix))
 
     def hard_threshold(self, x, support, threshold):
