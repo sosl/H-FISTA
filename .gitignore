@@ -137,3 +137,7 @@ dense/results/**/*_mask.npy
 
 # training data cache
 prior/results/*_data.npz
+
+# refiner training pairs
+prior/results/pairs128_*.npz
+prior/results/*.done
