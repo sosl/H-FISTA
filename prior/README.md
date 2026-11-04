@@ -86,6 +86,36 @@ over-concentration can be reduced with group penalties. The phases inside the de
 regions (and the twin mixture) are what is lost, and a better power distribution alone
 doesn't recover them.
 
+**Extending H-FISTA's support with the coarse solution, then refitting with no l1 penalty**
+(`coarse_support.py`, `results/coarse_support128.jsonl`).
+* **Setup:** start from the H-FISTA model and refit with 1000 FISTA iterations on its
+  support, extended by 4×4 blocks. Fits are unpenalised or ridge-penalised: μ‖h‖² with
+  μ = c·L₀, c = 0.01 or 0.1.
+* **Block sources:**
+  * dense90: the blocks holding 90% of the densified model's power;
+  * group: blocks touched by the 2×2 group model;
+  * oracle: the blocks holding 90% of the true power.
+* **Baseline:** the paper's densification, i.e. the whole half plane, unpenalised.
+
+Mean similarity (4 seeds) and median relative residual:
+
+| regime | l1 support only | + dense90 | + group | + **oracle** | full half plane |
+|---|---|---|---|---|---|
+| S3 | 0.69 (6e-2) | 0.69 (6e-2) | 0.66 (4e-2) | 0.70 (6e-2) | 0.69 (6e-4) |
+| S10 | 0.30 (0.21) | 0.29 (0.15) | 0.31 (0.12) | 0.30 (0.16) | 0.30 (4e-4) |
+| S30 | 0.11 (0.54) | 0.10 (0.14) | 0.10 (0.45) | 0.13 (0.18) | 0.12 (4e-4) |
+
+(c = 0; ridge changes the similarity by ≤ 0.03, sometimes up and sometimes down.)
+
+* **Even the true coarse support barely helps** (S30: 0.12 → 0.13).
+* **Restricted supports don't fit the data:** relative residuals of 0.15–0.5 at S10/S30,
+  even for the oracle support covering a third of the plane at S30. The 10% of the power
+  outside the main blocks is spread thinly over the whole plane. Through cross terms with
+  the bright components it still carries much of the dynamic spectrum's structure.
+* Only the full half plane fits, and it still lands in a twin mixture. Starting from the
+  l1 model keeps what H-FISTA got right. But with a fixed support and no penalty, nothing
+  picks between the true and twin phases inside a dense region.
+
 **Chromatic smearing is not the cause.** Rescaling time per channel (t' = t (ν/ν₀)^p,
 p = ±1, 2, with the uncovered samples masked) does not make the simulated wavefield
 sparser: the share of pixels holding 90% of the power changes by ≤ 15%. The paper's
