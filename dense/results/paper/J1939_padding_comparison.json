@@ -1,0 +1,34 @@
+{
+ "sparse": {
+  "field_similarity": 0.6178853810066901,
+  "wavefield_similarity": 0.6013109759399299,
+  "resid_a": 0.15461312526801732,
+  "resid_b": 0.15096791266088744
+ },
+ "dense": {
+  "field_similarity": 0.6173664653410016,
+  "wavefield_similarity": 0.6008541888858857,
+  "resid_a": 1.3944337171097212e-05,
+  "resid_b": 1.0052537284713547e-05
+ },
+ "runs": {
+  "original": {
+   "chosen": 28,
+   "n": 55225,
+   "shape_rows": 487,
+   "sec_per_step_median": 65.64056587219238,
+   "wall": 2778.1036174297333,
+   "sparse_neg_power": 0.0,
+   "dense_neg_power": 0.009980378813164218
+  },
+  "padded": {
+   "chosen": 28,
+   "n": 56590,
+   "shape_rows": 512,
+   "sec_per_step_median": 87.97079086303711,
+   "wall": 2951.0873584747314,
+   "sparse_neg_power": 0.0,
+   "dense_neg_power": 0.008986018548661457
+  }
+ }
+}

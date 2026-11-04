@@ -108,6 +108,7 @@ criterion:
 |---|---|---|---|---|
 | l1 (H-FISTA) | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
 | **MCP γ=3** | **0.75 (4/6)** | 0.20 (0/6) | **1.00 (6/6)** | **0.87 (4/6)** |
+| MCP γ=10 | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.53 (2/6) |
 | reweighted l1, c=1 | 0.49 (2/6) | 0.19 (0/6) | 0.99 (5/6) | 0.75 (3/6) |
 | reweighted l1, c=4 | 0.49 (2/6) | 0.19 (0/6) | 1.00 (6/6) | 0.64 (2/6) |
 | amplitude loss | 0.25 (0/6) | 0.18 (0/6) | 0.90 (5/6) | 0.30 (0/6) |
@@ -115,7 +116,8 @@ criterion:
 | adaptive 4 → 2 → 1 (above) | 0.69 (2/6) | **0.57 (1/6)** | 0.88 (4/6) | 0.80 (1/6) |
 | **MCP + adaptive, lower residual** | **0.76 (4/6)** | **0.57 (1/6)** | **1.00 (6/6)** | **0.89 (4/6)** |
 
-* **MCP is the best single change found on this branch.** It doubles the exact
+* **MCP γ=3 is the best single change on this benchmark**, but it does not carry over
+  to the paper's data (next section). It doubles the exact
   recoveries in two hard regimes (2 → 4 of 6 each) and solves every easy case. No seed gets
   worse by more than 0.01, and it costs no more than l1. The likely mechanism: l1 shrinks
   strong components as much as weak ones, so the gradient left over after shrinkage
@@ -131,8 +133,30 @@ criterion:
   stopped model of the two needs no truth. It has the best mean in every regime.
   Including l1 as a third candidate changes nothing.
 
-Not yet checked: MCP on the paper's 512² data and on J1939. That is the obvious next
-run, because MCP alters which components get selected.
+## On the paper's data (`real_data.py`, results in `results/paper/`)
+
+Notebook configuration for every dataset (masks, RFI cleaning, N₀ = 60, the paper's
+stopping criteria, densification with 1000 iterations). Similarity to the truth is
+known only for the 12.5% simulations (the published run's exact recovery).
+
+| dataset | l1 (H-FISTA) | MCP γ=3 | MCP γ=10 | adaptive 4 → 2 → 1 |
+|---|---|---|---|---|
+| simulated 12.5%, noise-free | **1.00** (647 comp., step 66) | 0.68 (7863 comp.; sparsity stop, step 36) | 0.80 (7477; step 36) | 0.36 (7451; step 32) |
+| simulated 12.5%, noisy | **1.00** (596 comp., step 38) | 0.63 (7573; step 35) | – | 0.29 (534; step 19) |
+| simulated 25%, noise-free | resid. 0.041 (7583 comp.) | 0.045 (7398) | 0.040 (7521) | 0.054 (7336) |
+| J0837+0610 | 4526 comp.; dense resid. 0.070, neg.-delay power 3.2% | 4604; 0.070, 3.2% | – | 7352; 0.070, 3.2% |
+| J1939+2134 | 55 225 comp.; dense resid. 1.4e-5, neg.-delay power 1.0% | 56 931; 1.2e-5, 0.95% | – | 58 224; 1.1e-5, 1.0% |
+
+* **Neither MCP nor coarse-to-fine carries over.** On the paper's 12.5% simulation, which
+  l1 solves exactly, both fail. MCP adds components about 2.5× faster than l1 (349 vs ~150
+  by step 10) and hits the 3% sparsity criterion at step 36, long before l1's slow
+  convergence to 647 components at step 66. A weaker concavity (γ=10) is better here
+  (0.80) but still fails, and on the 256² benchmark it loses MCP's gains.
+* On the 25% simulation and the two pulsars, the three methods are indistinguishable by
+  the truth-free diagnostics.
+* So the 256² benchmark was not representative of the paper's simulations: its gains came
+  from regimes (uniform moduli, 50% density) that differ from the paper's data. l1 remains
+  the safest default; MCP is not recommended.
 
 ### The paper's own failure case (512² noise-free 25%)
 
