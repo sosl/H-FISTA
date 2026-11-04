@@ -42,6 +42,55 @@ mixtures of the wavefield and its twin, which fit |E|² equally well. With dense
 wavefields the half-plane constraint does not separate them: the twin of a component at
 positive delay lies at negative delay, but cross terms between components do not.
 
+### Locally dense fields: does H-FISTA concentrate power? (`coarse_power.py`)
+
+Hypothesis: in locally dense regions, H-FISTA puts the power of a cluster into a single
+component, and a coarser (block) model should help. Diagnostics on the same 128² cases:
+
+* **Block concentration.** Within the 4×4 blocks that hold 90% of the true (non-origin)
+  power, take the share of each block's power held by its brightest pixel
+  (power-weighted mean):
+
+  | regime | truth | H-FISTA sparse | H-FISTA dense | group 2×2 sparse | greedy sparse |
+  |---|---|---|---|---|---|
+  | S3 | 0.53 | 0.51 | 0.51 | 0.48 | 0.54 |
+  | S10 | 0.26 | 0.42 | 0.41 | 0.33 | 0.42 |
+  | S30 | 0.23 | 0.60 | 0.43 | 0.54 | 0.53 |
+
+  **Confirmed:** in the dense regimes H-FISTA's models are 1.6–2.6× too concentrated,
+  and densification only partly spreads the power. The 2×2 group penalty brings the
+  concentration closer to the truth.
+* **Coarse power is largely right.** The normalised correlation of the dense model's
+  block-power map with the truth's, best over shifts, for H-FISTA:
+
+  | regime | pixel | 2×2 | 4×4 | 8×8 |
+  |---|---|---|---|---|
+  | S10 | 0.49 | 0.75 | 0.86 | 0.92 |
+  | S30 | 0.30 | 0.51 | 0.72 | 0.84 |
+
+  The twin's block-power map correlates almost as well (e.g. 0.81 at S10, 4×4), so this
+  measure says little about the twin.
+* **Block penalties don't fix the field.** Field similarity (dense, mean of 4 seeds;
+  `results/screen128_group.jsonl`):
+
+  | regime | l1 | group 2×2 | fixed 2→1 | adaptive 4→2→1 | greedy |
+  |---|---|---|---|---|---|
+  | S3 | 0.69 | 0.69 | 0.68 | 0.68 | 0.70 |
+  | S10 | 0.30 | 0.34 | 0.33 | 0.28 | 0.29 |
+  | S30 | 0.12 | 0.11 | 0.11 | 0.10 | 0.11 |
+
+  The S10 gain for the 2×2 groups comes mostly from one seed (0.40 → 0.54).
+
+**Conclusion.** The coarse power distribution is recovered reasonably well, and its
+over-concentration can be reduced with group penalties. The phases inside the dense
+regions (and the twin mixture) are what is lost, and a better power distribution alone
+doesn't recover them.
+
+**Chromatic smearing is not the cause.** Rescaling time per channel (t' = t (ν/ν₀)^p,
+p = ±1, 2, with the uncovered samples masked) does not make the simulated wavefield
+sparser: the share of pixels holding 90% of the power changes by ≤ 15%. The paper's
+J0837 data have 0.5% fractional bandwidth in any case.
+
 ## A learned prior: plug-and-play (`denoiser.py`, `pnp.py`)
 
 * **Denoiser:** an 8-layer CNN (32 channels) trained on 1500 thin-screen wavefields at
