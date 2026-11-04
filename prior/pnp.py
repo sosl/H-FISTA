@@ -69,27 +69,36 @@ def main():
     p.add_argument("--sigma1", type=float, default=0.01)
     p.add_argument("--stages", type=int, default=20)
     p.add_argument("--iters", type=int, default=20)
+    p.add_argument("--ar", type=float, default=4.0)
+    p.add_argument("--r_f", type=float, default=15.0)
+    p.add_argument("--methods", nargs="+", default=["pnp"], help="pnp and/or l1 (H-FISTA, for out-of-distribution comparisons)")
     p.add_argument("--out", required=True)
     a = p.parse_args()
     prior = Prior(a.model)
     for regime in a.regimes:
         for seed in a.seeds:
-            sim = simulate_screen(n_t=a.N, n_f=a.N, sigma_phi=REGIMES[regime], r_f=15.0, bandwidth=0.2, seed=seed, noise=a.noise)
-            D, T = sim.data, sim.wavefield
+          sim = simulate_screen(n_t=a.N, n_f=a.N, sigma_phi=REGIMES[regime], r_f=a.r_f, ar=a.ar, bandwidth=0.2, seed=seed,
+                                noise=a.noise)
+          D, T = sim.data, sim.wavefield
+          for method in a.methods:
             t0 = time.time()
             trace = []
-            h = pnp(D, prior, sigma0=a.sigma0, sigma1=a.sigma1, stages=a.stages, iters=a.iters,
-                    callback=lambda h, k, s: trace.append(dict(stage=k, sigma=float(s), sim=float(wavefield_similarity(h, T)),
-                                                               resid=relative_residual(D, h))))
+            if method == "l1":
+                from prior.bench_screen import run_l1
+                h, _ = run_l1(D)
+            else:
+                h = pnp(D, prior, sigma0=a.sigma0, sigma1=a.sigma1, stages=a.stages, iters=a.iters,
+                        callback=lambda h, k, s: trace.append(dict(stage=k, sigma=float(s), sim=float(wavefield_similarity(h, T)),
+                                                                   resid=relative_residual(D, h))))
             t1 = time.time()
             d = get_dense_solution(h, D, np.ones_like(D), iterations=1000)
-            rec = dict(regime=regime, seed=seed, method="pnp", N=a.N, sigma0=a.sigma0, sigma1=a.sigma1, stages=a.stages,
+            rec = dict(regime=regime, seed=seed, method=method, ar=a.ar, r_f=a.r_f, N=a.N, sigma0=a.sigma0, sigma1=a.sigma1, stages=a.stages,
                        iters=a.iters, sim=float(wavefield_similarity(h, T)), dense_sim=float(wavefield_similarity(d, T)),
                        resid=relative_residual(D, h), dense_resid=relative_residual(D, d), wall_solver=t1 - t0, trace=trace,
                        split=twin_split(h, T), dense_split=twin_split(d, T))
             with open(a.out, "a") as fh:
                 fh.write(json.dumps(rec) + "\n")
-            print(f"{regime} seed {seed} pnp: sim {rec['sim']:.3f} dense {rec['dense_sim']:.3f} resid {rec['resid']:.3f}/"
+            print(f"{regime} seed {seed} {method} ar {a.ar} r_f {a.r_f}: sim {rec['sim']:.3f} dense {rec['dense_sim']:.3f} resid {rec['resid']:.3f}/"
                   f"{rec['dense_resid']:.1e} true/twin {rec['dense_split']['true']:.2f}/{rec['dense_split']['twin']:.2f} "
                   f"{rec['wall_solver']:.0f}s | trace " +
                   " ".join(f"{x['sim']:.2f}" for x in trace[::4]), flush=True)
