@@ -56,7 +56,7 @@ def main(files):
         n_pix = 256 * 256
         st = stopped_step(r, n_pix)
         table[regime][method].append(dict(seed=seed, stopped=st["sim"], best=r["best"]["sim"], final=r["last"]["sim"],
-                                          step=st["step"], wall=r["wall"]))
+                                          step=st["step"], wall=r["wall"], resid=st["resid"]))
     for regime in ["U12", "U25", "L25", "L50"]:
         if regime not in table:
             continue
@@ -71,6 +71,14 @@ def main(files):
             st = np.array([x["stopped"] for x in v])
             print(f"| {LABEL[m]} | {len(v)} | {int((st > 0.99).sum())} | {st.mean():.3f} | {np.mean([x['best'] for x in v]):.3f} | "
                   f"{np.mean([x['final'] for x in v]):.3f} | {' '.join(f'{x:.2f}' for x in st)} |")
+        # combination needing no truth: run l1 and ac2f, keep the stopped model with the lower data residual
+        if "l1" in table[regime] and "ac2f" in table[regime]:
+            a = {x["seed"]: x for x in table[regime]["l1"]}
+            b = {x["seed"]: x for x in table[regime]["ac2f"]}
+            common = sorted(set(a) & set(b))
+            pick = np.array([(a[k] if a[k]["resid"] <= b[k]["resid"] else b[k])["stopped"] for k in common])
+            print(f"| **l1 + adaptive, lower residual** | {len(common)} | {int((pick > 0.99).sum())} | {pick.mean():.3f} | – | – | "
+                  f"{' '.join(f'{x:.2f}' for x in pick)} |")
 
 
 if __name__ == "__main__":
