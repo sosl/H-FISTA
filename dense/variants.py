@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 import numpy as np
-from scipy.fft import fftshift, ifftshift
+from scipy.fft import fftshift, ifftshift, ifftn
 from scipy.linalg import norm
 
 import fista as F
@@ -168,7 +168,8 @@ def run_variant(
     step_callback: Optional[Callable] = None,
     eta: float = 1.1,
     levels: Optional[Sequence[int]] = None,
-    plateau_tol: float = 0.03,
+    plateau_tol: float = 0.05,
+    min_resid_drop: float = 0.3,
     stop_on_final_plateau: bool = False,
 ):
     """method: "l1", "elastic" (with beta) or "group" (with block_sizes: one per stage, the last
@@ -176,7 +177,9 @@ def run_variant(
 
     levels (group only), e.g. [4, 2, 1]: adaptive coarse-to-fine. Stay at a block size until the
     number of non-zero pixels plateaus (grows by <= plateau_tol between λ steps, after having
-    grown at this level), then move to the next, finer block size. With stop_on_final_plateau,
+    grown at this level), then move to the next, finer block size. Leaving the coarsest level
+    also requires the relative data residual to have dropped by at least min_resid_drop
+    during it (the coarse structure has been found, not just a slow start). With stop_on_final_plateau,
     a plateau at the last level ends the run (chosen = that step).
     Returns io, chosen step."""
     N, M = data.shape
@@ -191,7 +194,7 @@ def run_variant(
     io = {"models": {0: h}, "lambdas": {0: lam_init}, "masks": {0: mask}, "Ls": {}, "demerits": {}, "block": {}}
     approved = np.array([[0, 0]])
     chosen = -1
-    level, n_level_start, n_prev = 0, None, None
+    level, n_level_start, n_prev, r_level_start = 0, None, None, None
     io["plateaus"] = []
     for step in range(1, max_steps + 1):
         lam = io["lambdas"][step - 1] / lambda_scale
@@ -242,9 +245,12 @@ def run_variant(
             step_callback(io, step)
         if method == "group" and levels:
             n = int(np.count_nonzero(fit))
+            pred = np.abs(ifftn(fit)) ** 2
+            rel_res = np.linalg.norm((pred - data) * mask_s) / np.linalg.norm(data * mask_s)
             if n_level_start is None:
-                n_level_start = n
-            elif n_prev is not None and n > n_level_start and n <= n_prev * (1 + plateau_tol):
+                n_level_start, r_level_start = n, rel_res
+            elif (n_prev is not None and n > n_level_start and n <= n_prev * (1 + plateau_tol)
+                  and (level > 0 or rel_res <= (1 - min_resid_drop) * r_level_start)):
                 io["plateaus"].append((step, k))
                 if level < len(levels) - 1:
                     level += 1
